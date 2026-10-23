@@ -1,0 +1,70 @@
+ 
+                                              HEC-RAS - River Analysis System
+ 
+ 
+Project File:  s:\AQMetadata\Water_Management\Site Models\41K 05100 Elk Creek nr Haystack Butte\HECRAS\RAS_files\elk_cr_agusta.prj
+ 
+Project Name:  elk_cr_agusta
+ 
+ 
+Plan Name:     24hr_plan
+ 
+Short ID:      24hr
+ 
+
+Starting Time:   05Aug2025 2400
+
+Ending Time:     06Aug2025 2400
+
+
+                ################################################
+                #                                              #
+                #                                              #
+                #       1D and 2D Unsteady Flow Module         #
+                #                                              #
+                #                                              #
+                #          HEC-RAS 6.6 September 2024          #
+                #                                              #
+                #             06AUG25 at 09:14:35              #
+                #                                              #
+                ################################################
+                
+ 
+ 
+ 
+
+         US Inflow      DS Outflow       Lat Hydro        SA Hydro     Groundwater      Diversions   Precip Excess
+         *********      **********       *********        ********     ***********      **********   *************
+                                                                                                                                  
+
+    Start 1D Reach  Final 1D Reach   Starting SA's      Final SA's
+    **************  **************   *************      **********
+                                                                  
+
+
+
+                 ***   Volume Accounting for 2D Flow Area in 1000 m^3   ***
+
+           2D Area    Starting Vol      Ending Vol      Cum Inflow     Cum Outflow           Error   Percent Error
+           *******    ************      **********      **********     ***********           *****   *************
+ 
+ 
+         Perimeter                           25.83           5089.           5063.        0.003194    0.0000627621
+
+
+
+                 ***  Total Volume Accounting (for the entire model) in 1000 m^3   ***
+
+Total Boundary Flux of Water In            5089.
+Total Boundary Flux of Water Out           5063.
+
+Starting Volume                     0.0000000000
+Ending Volume                              25.83
+
+
+                             Error   Percent Error
+                             *****   *************
+                          0.003194    0.0000627621
+
+
+

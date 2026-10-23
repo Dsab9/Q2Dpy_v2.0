@@ -1,0 +1,107 @@
+# HEC-RAS calibration site config: Teton_Buck_Br
+# Paths in single quotes are literal strings, backslashes and spaces are fine.
+
+hec_version = "641"
+EPSG = "EPSG:6514"           # EPSG:6514 NAD83(2011) MT state plane; EPSG:5703 NAVD88 height (m), use geoid2018
+gauge_el_NAVD88m = 883.1357
+
+# ---------------------------------------------------------------- run mode
+[mode]
+cal_observed = true
+cal_indirect = false
+cal_EG_slope = ""  # MISSING in source config
+gen_ratecurv = false
+sim_event    = false
+
+# ------------------------------------------------------------- calibration
+[calibration]
+batch_process      = ""            # MISSING in source; calibrate list of given discharges
+create_i0_simplex  = ""            # MISSING in source; only works with Nelder-Mead
+algorythm          = ""            # MISSING in source; "Nelder-Mead" | "SCE-UA"
+objective_function = ""            # MISSING in source; "RMSE" | "MAE"
+max_runs           = 70
+
+structures             = false     # assign channel n to structures in cal_observed (currently assigns channel n to structure)
+independent_structures = ""        # MISSING in source; calibrate structures separately from channel; input to simplex same as Q (structures must be true)
+
+set_friction_slope = ""            # MISSING in source; override friction slopes prior to initial run
+FS_params = ""                     # MISSING in source; one or both for cal_EG_slope; us_fs must be first if both
+upstream_friction_slope   = ""  # MISSING in source config
+downstream_friction_slope = ""  # MISSING in source config
+
+Man_n_params = ["Channel"]                    # e.g. Grassland, Road, NoData, Channel, Riparian
+Man_n_vals   = [0.051]
+
+Q_params     = ["UpstreamBC"]      # discharge is last in bounds / initial guess
+Q_params_cfs = 292.7
+
+# order: (us_fs, ds_fs, landcover_regions, structures, discharge)
+bounds   = [[0.01, 0.09]]
+i0_guess = [[0.03, 0.035]]
+
+# --------------------------------------------------------------- options
+[options]
+find_cell_index  = true            # get cell index from WSP coordinates and update csv; must have unique id in ID field
+get_inst_q       = false           # grab current reporting discharge for gauge; grabs MaxQ if false
+export_shapefile = false           # gen_ratecurv & sim_event: save last inundation shapefile
+export_geojsons  = false           # gen_ratecurv & sim_event: save all GeoJSONs (export_shapefile must be true)
+verbose = true
+
+# ------------------------------------------------------------------- paths
+[paths]
+directory = 'S:\Water_Management\Site Models\41O 09000 Teton River below Buck Bridge\HECRAS'
+# RAS_files, GIS, GIS/GeoJSONs, Input, Output are derived from `directory`
+
+# ------------------------------------------------------------ RAS project
+[ras]
+prj  = ""  # MISSING in source config
+geom = ""  # MISSING in source config
+flow = "u01"
+plan = "p01"
+landcover = 'Land Classification\LandCover.hdf'   # relative to RAS_files
+
+[inputs]
+grid_filename  = "flow_area.shp"          # GIS/   - for finding cell only
+terrain_raster = "Terrain (1).Clone.tif"  # GIS/   - template for exporting WSEs
+wse_filename   = "channel_cal.csv"        # Input/
+trendline      = ""                       # MISSING in source; Input/
+q_list         = ""                       # MISSING in source; Input/
+
+[outputs]
+simplex_filename      = "simplex_dataframe.csv"
+iterations_filename   = "model_iterations.csv"
+wse_prof_filename     = "wse_profiles_output.csv"
+rating_curve_filename = "rating_curve.csv"
+batch_filename        = ""  # MISSING in source config
+
+# --------------------------------------------------- gen_ratecurv settings
+[ratecurve]
+use_Q_list      = true             # use csv list of discharges from Input instead of generating its own
+min_cfs         = 0
+max_cfs         = 420              # also used for sim_event
+q_divisions     = 60               # number of runs; 1 = single event based on q
+adjust_n_rating = ""               # MISSING in source; adjust n by discharge using a, b and trend params (log recommended)
+n_regions       = ""  # MISSING in source config
+function_type   = ""               # MISSING in source; linear, log, exp, power, hyper (x is metric)
+a     = ""  # MISSING in source config
+b     = ""  # MISSING in source config
+max_n = ""  # MISSING in source config
+min_n = ""  # MISSING in source config
+
+# ------------------------------------------------------ sim_event settings
+[sim_event]
+hydrograph_ramp = false            # true: ramp q up, hold last hour at max; false: constant q
+change_sim_time = false            # change sim time based on 15 min increments
+sim_time_hr     = 3                # min 1 hr
+set_datetime    = false            # true enables the settings below
+start_date = "07JUN2023"
+start_time = "00:00"
+end_date   = "07JUN2023"
+end_time   = "03:00"
+computation_interval = "0.5SEC"
+
+# ------------------------------------------------------- labeling bugfix
+[labels]
+perimeter = "Perimeter 1"
+us_bc = "Upstream BC"
+ds_bc = "Downstream BC"
