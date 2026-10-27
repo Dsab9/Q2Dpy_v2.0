@@ -13,7 +13,7 @@ import units
 CONFIG_NAME = "template.toml"
 # =================================================================================
 
-CONFIGS_DIR = Path(__file__).resolve().parent.parent / "Configs"
+CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 CONFIG_PATH = CONFIGS_DIR / CONFIG_NAME
 
 if not CONFIG_PATH.is_file():
@@ -29,7 +29,10 @@ _FLAT_SECTIONS = (
     "mode", "calibration", "options", "ratecurve", "sim_event", "labels",
 )
 
-_flat = {k: v for k, v in _raw.items() if not isinstance(v, dict)}
+_DEFAULTS = {"early_stop": False, "early_stop_tol": None}
+
+_flat = dict(_DEFAULTS)
+_flat.update({k: v for k, v in _raw.items() if not isinstance(v, dict)})
 for _sec in _FLAT_SECTIONS:
     _flat.update(_raw.get(_sec, {}))
 globals().update(_flat)
@@ -99,6 +102,9 @@ def validate():
 
     if not any((cal_observed, cal_indirect, cal_EG_slope, gen_ratecurv, sim_event)):
         errors.append("No run mode is true in [mode].")
+
+    if early_stop and (early_stop_tol is None or early_stop_tol <= 0):
+        errors.append("early_stop = true requires early_stop_tol > 0 in [calibration].")
 
     if len(Man_n_vals) != len(Man_n_params):
         errors.append(

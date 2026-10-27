@@ -225,7 +225,8 @@ def calc_obj_function(input_vals, obs_df=None, batch_row=None):
 # ------------------------------------------------------------------ optimizer
 def optimize_model(initial_simplex=None, obs_df=None, batch_row=None):
     """Builds the starting parameter vector from the config, then runs the chosen
-    optimizer (Nelder-Mead or SCE-UA) on calc_obj_function."""
+    optimizer (Nelder-Mead or SCE-UA) on calc_obj_function. Stops early when the
+    objective values flatten out, if config.early_stop is on."""
 
     if config.cal_observed is True:
         if config.cal_EG_slope is True:
@@ -249,8 +250,16 @@ def optimize_model(initial_simplex=None, obs_df=None, batch_row=None):
         print('No defined computational method')
         return
 
-    # objective function with the observation data bound in
-    objective = partial(calc_obj_function, obs_df=obs_df, batch_row=batch_row)
+    # tracks the spread of the last two simplexes' worth of objective values;
+    # always records it, only stops the run when early_stop is on
+    early_stop = getattr(config, 'early_stop', False) is True
+    simplex_size = len(initial_values) + 1
+    tracker = ConvergenceTracker(2 * simplex_size,
+                                 tol=config.early_stop_tol if early_stop else None)
+    callback = tracker.callback if early_stop else None
+
+    # objective function with the observation data and tracker bound in
+    objective = partial(calc_obj_function, obs_df=obs_df, batch_row=batch_row, tracker=tracker)
 
     x0 = np.array(initial_values)
     bounds = config.bounds
@@ -262,12 +271,12 @@ def optimize_model(initial_simplex=None, obs_df=None, batch_row=None):
         if initial_simplex is not None:
             options['initial_simplex'] = initial_simplex
         result = scipy.optimize.minimize(objective, x0, method='Nelder-Mead',
-                                         bounds=bounds, options=options)
+                                         bounds=bounds, options=options, callback=callback)
         print(f"Nelder-Mead result: {result}")
 
     elif config.algorythm.lower() == 'sce-ua':
         kw = dict(method='sceua', bounds=bounds, tol=1e-4, max_iter=config.max_runs,
-                  disp=True, kwargs={'n_complexes': 3, 'complex_size': 2})
+                  disp=True, kwargs={'n_complexes': 3, 'complex_size': 2}, callback=callback)
         if initial_simplex is not None:
             kw['initial_simplex'] = initial_simplex
         result = sambo.minimize(objective, initial_values, **kw)
@@ -275,3 +284,36 @@ def optimize_model(initial_simplex=None, obs_df=None, batch_row=None):
 
     else:
         print("Invalid Optimization Algorithm")
+
+
+class ConvergenceTracker:
+    """Tracks the spread of the most recent objective values to detect a plateau.
+
+    Keeps the last n_values objective values (use two simplexes' worth:
+    2 * (number of parameters + 1)). std is the standard deviation of that window,
+    or None until the window is full. If tol is given, the run counts as converged
+    once std < tol.
+    """
+
+    def __init__(self, n_values, tol=None):
+        self.recent = deque(maxlen=n_values)
+        self.tol = tol
+        self.std = None
+
+    def add(self, value):
+        """Records one objective value; returns the std of the current window (or None)."""
+        self.recent.append(value)
+        if len(self.recent) == self.recent.maxlen:
+            self.std = float(np.std(self.recent))
+        return self.std
+
+    @property
+    def converged(self):
+        return self.tol is not None and self.std is not None and self.std < self.tol
+
+    def callback(self, intermediate_result):
+        """Optimizer callback: ends the run (cleanly, keeping the best result) once converged."""
+        if self.converged:
+            print(f"Converged: std of the last {len(self.recent)} objective values is "
+                  f"{self.std:.2e} (< {self.tol}). Stopping.")
+            raise StopIteration

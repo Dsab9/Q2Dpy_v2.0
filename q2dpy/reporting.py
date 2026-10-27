@@ -3,7 +3,6 @@
 from datetime import datetime
 from pathlib import Path
 
-# from nbconvert import HTMLExporter
 import h5py
 import nbformat as nbf
 
