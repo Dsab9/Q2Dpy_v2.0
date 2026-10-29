@@ -2,7 +2,8 @@
 
 Run it from the q2dpy folder (the folder that contains this package):
 
-    python -m reporting <output folder> [--tol 0.03] [--input-dir DIR] [--config NAME] [--report-root DIR]
+    python -m reporting <output folder> [--tol 0.03] [--input-dir DIR] [--config NAME]
+    "folder that receives report folders (default: <site>/Reporting)"
 """
 import argparse
 

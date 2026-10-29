@@ -19,7 +19,6 @@ from . import data as rd
 from . import plots as rp
 from units import cms_to_cfs
 
-DEFAULT_REPORT_ROOT = Path(__file__).resolve().parent.parent.parent / "reporting"
 
 CSS = """
 body{font-family:Segoe UI,Arial,sans-serif;max-width:1000px;margin:2em auto;padding:0 1em;color:#222}
@@ -49,7 +48,8 @@ class CalibrationReport:
         self.run_name = self.output_dir.name
         self.project = self.raw.get("ras", {}).get("prj", "project")
         self.tol_arg = tol_m
-        self.report_root = Path(report_root) if report_root else DEFAULT_REPORT_ROOT
+        self.report_root = (Path(report_root) if report_root
+                            else self.output_dir.parent.parent / "Reporting")
         self.report_dir = None
         self.figures = []          # (title, caption, path)
         self.tables = {}           # name -> DataFrame
@@ -225,12 +225,8 @@ class CalibrationReport:
 
     # -------------------------------------------------------------------- run
     def _new_report_dir(self):
-        base = self.report_root / f"{self.project}_{self.run_name}"
-        folder, n = base, 0
-        while folder.exists():
-            n += 1
-            folder = base.with_name(f"{base.name}_{n}")
-        folder.mkdir(parents=True)
+        folder = self.report_root / self.run_name
+        folder.mkdir(parents=True, exist_ok=True)
         return folder
 
     def run(self):
@@ -240,7 +236,7 @@ class CalibrationReport:
         self.report_dir = self._new_report_dir()
         self.plot()
         tdir = self.report_dir / "tables"
-        tdir.mkdir()
+        tdir.mkdir(exist_ok=True)
         for name, table in self.tables.items():
             table.to_csv(tdir / f"{name}.csv", index=False)
         self.write_html()

@@ -2,8 +2,8 @@
 from reporting import make_report
 
 # ============================== EDIT THESE ====================================
-OUTPUT_DIR = r"C:\Users\...\Output\20261029_cal_observed"
-TOL_M = None          # e.g. 0.03 to override [report] report_tol_m for this report only
+OUTPUT_DIR = r"C:\Users\CND367\Documents\Python_Scripts\Q2Dpy\test_data\Output\test_sub"
+TOL_M = 0.03          # e.g. 0.03 to override [report] report_tol_m for this report only
 # ==============================================================================
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Q2Dpy
 
-Python automation for calibrating and running 2D HEC-RAS models. Q2Dpy edits a HEC-RAS project's input files, runs the plan through the HEC-RAS COM controller, reads the results from the plan HDF file, and repeats until a calibration converges or a set of discharges has been run. Every run gets its own dated Input and Output folder, and finished calibrations produce an HTML report.
+Python automation for calibrating and running 2D HEC-RAS models. Q2Dpy edits a HEC-RAS project's input files, runs the plan through the HEC-RAS COM controller, reads the results from the plan HDF file, and repeats until a calibration converges or a set of discharges has been run. Every run gets its own dated Input, Output and Reporting folder, and finished calibrations produce an HTML report.
 
 It supports four workflows:
 
@@ -167,7 +167,6 @@ Q2Dpy_v2.0/
     template.toml         example site config
     legacy/               older configs and the legacy converter
   test_data/              example HEC-RAS project for smoke tests
-  reporting/              generated reports, one folder per run (created on first report)
 ```
 
 ---
@@ -184,6 +183,7 @@ Expected data folder:
   GIS/                    2D mesh shapefile, terrain raster
   Input/                  observation CSV, Q list, trend line CSV; per-run snapshot folders are added here
   Output/                 created automatically; one subfolder per run
+  Reporting/              created automatically; one subfolder per run with the report 
 ```
 
 Checklist before the first run:
@@ -312,7 +312,7 @@ HEC-RAS opens on screen for each model run, then closes. Do not use the computer
 
 ## Run folders
 
-Each run creates a pair of folders with the same name, `<YYYYMMDD>_<mode>`, for example `20261029_cal_observed`. If the name already exists, `_1`, `_2` and so on are appended, so nothing is overwritten.
+Each run creates folders with the same name in Input and Output, and its report goes to a matching folder in Reporting. The name is <YYYYMMDD>_<mode>, for example 20261029_cal_observed. If the name already exists, `_1`, `_2` and so on are appended, so nothing is overwritten.
 
 | Mode part of the name | When |
 |---|---|
@@ -327,6 +327,8 @@ Each run creates a pair of folders with the same name, `<YYYYMMDD>_<mode>`, for 
     20261029_cal_observed/      snapshot: the config TOML and every file that was in Input/ at the start
   Output/
     20261029_cal_observed/      model_iterations.csv, wse_profiles_output.csv, GeoJSONs\, ...
+  Reporting/
+    20261029_cal_observed/      report.html, figures\, tables\
 ```
 
 The snapshot is taken after the cell-index step, so the copied observation CSV is the one the run actually used. Reports read the snapshot to find the settings, which is why a report can be built later without the original config.
@@ -337,7 +339,7 @@ The snapshot is taken after the cell-index step, so the copied observation CSV i
 
 When a `cal_observed`, `cal_indirect` or `cal_EG_slope` run finishes (and `batch_process` is off), `main.py` builds a report automatically. If the report fails, the results are still saved and the console prints the command to rerun it.
 
-Reports are written to `reporting/<project>_<run name>` in the repository root. Rerunning for the same run creates `_1`, `_2` and so on.
+Reports are written to <site directory>/Reporting/<run name>, next to Input and Output, using the same run name. Rerunning a report for the same run overwrites the previous one, so copy the folder first if you want to keep a version.
 
 | Item | Contents |
 |---|---|
@@ -375,7 +377,7 @@ python -m reporting <output folder> --tol 0.05
 | `--tol` | Tolerance in meters for this report (overrides `report_tol_m`) |
 | `--input-dir` | Snapshot folder, if it is not the sibling `Input/<run name>` |
 | `--config` | TOML name inside the snapshot folder, if there are several |
-| `--report-root` | Folder that receives report folders (default `reporting/` in the repository root) |
+| `--report-root` | Folder that receives report folders (default <site directory>/Reporting) |
 
 From Python:
 
@@ -484,7 +486,7 @@ To build the n-versus-Q trend, put calibrated results in `Input/trendline.csv` a
 
 The config TOML and a copy of every file that was in `Input/` when the run started.
 
-### Reports (`reporting/<project>_<run name>/`)
+### Reports (Reporting/<run name>/)
 
 `report.html`, `figures/*.png`, `tables/*.csv`. See [Calibration reports](#calibration-reports).
 
