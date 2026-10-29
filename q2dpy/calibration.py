@@ -181,6 +181,7 @@ def log_iteration(hecmodel, params_row, q_val, rmse, iteration, batch_row=None, 
         row_out['Q(cfs)'] = batch_row['Q(cfs)']
         row_out['Elev_m'] = batch_row['Elev_m']
         row_out['Modeled_WSE'] = batch_row['Modeled_WSE']
+        row_out['Batch_Row'] = batch_row.name
     append_row(config.iterations_filename, row_out)
 
 
@@ -195,15 +196,26 @@ def log_wse_profile(obs_df, ras_wse_pnts, iteration):
     cell_df.to_csv(config.wse_prof_filename, index=False)
 
 
-def calc_obj_function(input_vals, obs_df=None, batch_row=None, tracker=None):
+def calc_obj_function(input_vals, obs_df=None, batch_row=None, tracker=None, cache=None):
     """Objective function called by the optimizer.
 
     Applies the trial parameters, runs HEC-RAS, compares modeled and observed
     water surface elevations, logs the iteration (with the running std of the
     objective value), and returns the objective value (RMSE or MAE) to minimize.
+
+    If cache (a dict) is given, a parameter set that was already run during this
+    optimization returns its stored objective value without running HEC-RAS again.
+    Repeats are not logged and do not enter the convergence window.
     """
     # round inputs to 10^-6
     input_vals = [round(x, 6) for x in input_vals]
+
+    key = tuple(input_vals)
+    if cache is not None and key in cache:
+        if batch_row is not None or config.verbose is True:
+            print(f"Repeat of an earlier trial {key}; using stored RMSE: {cache[key]}")
+            print("")
+        return cache[key]
 
     hecmodel = HecRas.from_config()
     new_n = apply_trial_parameters(hecmodel, input_vals)
@@ -217,6 +229,9 @@ def calc_obj_function(input_vals, obs_df=None, batch_row=None, tracker=None):
     if batch_row is not None or config.verbose is True:
         print(f"RMSE: {rmse}")
         print("")
+
+    if cache is not None:
+        cache[key] = rmse
 
     obj_std = tracker.add(rmse) if tracker is not None else None
 
@@ -263,8 +278,9 @@ def optimize_model(initial_simplex=None, obs_df=None, batch_row=None):
                                  tol=config.early_stop_tol if early_stop else None)
     callback = tracker.callback if early_stop else None
 
-    # objective function with the observation data and tracker bound in
-    objective = partial(calc_obj_function, obs_df=obs_df, batch_row=batch_row, tracker=tracker)
+    # one cache per optimization, so every batch row starts empty
+    objective = partial(calc_obj_function, obs_df=obs_df, batch_row=batch_row,
+                        tracker=tracker, cache={})
 
     x0 = np.array(initial_values)
     bounds = config.bounds

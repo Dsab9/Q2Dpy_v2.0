@@ -42,8 +42,6 @@ class CalibrationReport:
             raise FileNotFoundError(f"Output folder not found: {self.output_dir}")
         self.toml_path = rd.find_snapshot_toml(self.input_dir, config_name)
         self.raw, self.s = rd.load_settings(self.toml_path)
-        if self.s.get("batch_process"):
-            raise NotImplementedError("Reports for batch calibrations are not implemented yet.")
 
         self.run_name = self.output_dir.name
         self.project = self.raw.get("ras", {}).get("prj", "project")
@@ -296,12 +294,15 @@ def make_report(output_dir, input_dir=None, config_name=None, report_root=None, 
     """Builds the right report object for a finished run from its saved config snapshot."""
     out, inp = rd.resolve_run_folders(output_dir, input_dir)
     _, s = rd.load_settings(rd.find_snapshot_toml(inp, config_name))
-    if s.get("cal_indirect"):
+    if s.get("batch_process"):
+        from .batch import BatchReport      # imported here to avoid a circular import
+        cls = BatchReport
+    elif s.get("cal_indirect"):
         cls = IndirectReport
     elif s.get("cal_observed") or s.get("cal_EG_slope"):
         cls = ObservedReport
     else:
-        raise NotImplementedError("Reports exist for calibration runs only (cal_observed, cal_indirect, cal_EG_slope).")
+        raise NotImplementedError(...)
     return cls(out, inp, config_name, report_root, tol_m)
 
 

@@ -160,6 +160,7 @@ Q2Dpy_v2.0/
       __init__.py         exports make_report
       __main__.py         command line entry: python -m reporting <output folder>
       builder.py          report classes (observed / indirect) and HTML assembly
+      batch.py            report for batch calibrations (per-run plots and batch summary)
       data.py             loading run files and the analysis (best run, tolerance, residuals)
       plots.py            matplotlib figures
       run_report.py       optional script: edit a path and build a report
@@ -183,7 +184,7 @@ Expected data folder:
   GIS/                    2D mesh shapefile, terrain raster
   Input/                  observation CSV, Q list, trend line CSV; per-run snapshot folders are added here
   Output/                 created automatically; one subfolder per run
-  Reporting/              created automatically; one subfolder per run with the report 
+  Reporting/              created automatically; one subfolder per run with the report
 ```
 
 Checklist before the first run:
@@ -279,7 +280,7 @@ Optional keys have defaults in `reporting/data.py` or are checked in `config.val
 
 | Key | Meaning |
 |---|---|
-| `report_tol_m` | Acceptance tolerance in meters. A run counts as acceptable if its objective is within this distance of the best run. If the section is missing, the report uses 10% of the best objective and says so in its summary |
+| `report_tol_m` | Acceptance tolerance in meters. A run counts as acceptable if its objective is within this distance of the best run. If the section is missing, the report uses 10% of the best objective and says so in its summary. Not used by batch reports |
 
 ### `[labels]`
 
@@ -312,7 +313,7 @@ HEC-RAS opens on screen for each model run, then closes. Do not use the computer
 
 ## Run folders
 
-Each run creates folders with the same name in Input and Output, and its report goes to a matching folder in Reporting. The name is <YYYYMMDD>_<mode>, for example 20261029_cal_observed. If the name already exists, `_1`, `_2` and so on are appended, so nothing is overwritten.
+Each run creates folders with the same name in Input and Output, and its report goes to a matching folder in Reporting. The name is `<YYYYMMDD>_<mode>`, for example `20261029_cal_observed`. If the name already exists, `_1`, `_2` and so on are appended, so a run never overwrites an earlier run's Input or Output.
 
 | Mode part of the name | When |
 |---|---|
@@ -337,17 +338,17 @@ The snapshot is taken after the cell-index step, so the copied observation CSV i
 
 ## Calibration reports
 
-When a `cal_observed`, `cal_indirect` or `cal_EG_slope` run finishes (and `batch_process` is off), `main.py` builds a report automatically. If the report fails, the results are still saved and the console prints the command to rerun it.
+When a `cal_observed`, `cal_indirect` or `cal_EG_slope` run finishes, `main.py` builds a report automatically. This includes batch calibrations (`batch_process = true`), which get a batch report. If the report fails, the results are still saved and the console prints the command to rerun it.
 
-Reports are written to <site directory>/Reporting/<run name>, next to Input and Output, using the same run name. Rerunning a report for the same run overwrites the previous one, so copy the folder first if you want to keep a version.
+Reports are written to `<site directory>/Reporting/<run name>`, next to `Input` and `Output`, using the same run name. Rerunning a report for the same run overwrites the previous one, so copy the folder first if you want to keep a version.
 
 | Item | Contents |
 |---|---|
 | `report.html` | One self-contained page with the figures embedded |
 | `figures/` | PNG files for each plot |
-| `tables/` | CSV files: parameter ranges, acceptable runs, ten best runs, residuals, worst points |
+| `tables/` | CSV files: parameter ranges, acceptable runs, ten best runs, residuals, worst points (batch reports: run summary and batch results) |
 
-### What the report shows
+### What the report shows (single-run calibrations)
 
 - **Summary:** run, project, mode, algorithm, objective function, number of model runs, best objective and iteration, tolerance and where it came from, number of acceptable runs, and bias, MAE and maximum error at the observation points.
 - **Stopping:** whether early stopping ended the run, and the final `Obj_Std`.
@@ -363,6 +364,21 @@ A run is acceptable if its objective is within the tolerance of the best run. Th
 
 Set the tolerance in `[report] report_tol_m` based on the accuracy of your surveyed marks, or override it for one report with `--tol`.
 
+### Batch reports
+
+In a batch calibration, each row of the observation file is its own optimization run, but all of them log into one `model_iterations.csv`. The batch report (`reporting/batch.py`) splits that file back into runs and shows:
+
+- **Summary:** algorithm, objective function, number of optimization runs, total model runs, and the early stopping settings.
+- **Batch results:** a plot of calibrated n against discharge (cfs), a plot of the final error against discharge, and a table with one row per optimization run (discharge, number of model runs, best and final objective, final parameter values).
+- **Optimization runs:** one collapsible section per row of the observation file, each with a convergence plot and a parameters-vs-iteration plot.
+- **Warnings:** the final value of a parameter within 5% of a bound, labeled with its run number.
+
+Notes:
+
+- Each batch row is scored at a single observation point, so the objective is the absolute error at that point, not a fit over a reach. There is no water surface profile, residual plot or acceptable-range analysis, and `report_tol_m` is not used.
+- Runs are split using the `Batch_Row` column of `model_iterations.csv`. Data from before that column existed is split wherever `Q(cfs)` changes, so two consecutive rows with the same discharge would be merged into one run.
+- The summary plot and table use `batch_results.csv` when it exists, and the last logged row of each run otherwise.
+
 ### Running a report without the model
 
 ```bat
@@ -377,7 +393,7 @@ python -m reporting <output folder> --tol 0.05
 | `--tol` | Tolerance in meters for this report (overrides `report_tol_m`) |
 | `--input-dir` | Snapshot folder, if it is not the sibling `Input/<run name>` |
 | `--config` | TOML name inside the snapshot folder, if there are several |
-| `--report-root` | Folder that receives report folders (default <site directory>/Reporting) |
+| `--report-root` | Folder that receives report folders (default `<site directory>/Reporting`) |
 
 From Python:
 
@@ -388,7 +404,7 @@ make_report(r"C:\...\Output\20261029_cal_observed", tol_m=0.05).run()
 
 `reporting/run_report.py` is a script version: edit `OUTPUT_DIR` and `TOL_M` at the top and run it as a module from the `q2dpy` folder with `python -m reporting.run_report`. Running the file directly will fail on the import because the package folder, not `q2dpy`, ends up on the search path.
 
-A report needs `model_iterations.csv` and `wse_profiles_output.csv` in the Output run folder and the config TOML in the matching Input run folder. It does not import `config.py`.
+A report needs `model_iterations.csv` in the Output run folder (plus `wse_profiles_output.csv` for single-run calibrations, and `batch_results.csv` is used if present for batch reports) and the config TOML in the matching Input run folder. It does not import `config.py`.
 
 ---
 
@@ -398,15 +414,24 @@ A report needs `model_iterations.csv` and `wse_profiles_output.csv` in the Outpu
 
 1. `main.py` validates the config, creates the run folders, optionally finds mesh cells, takes the input snapshot, loads the observations (`load_obs_df`), and applies one-time edits (simulation date/time, friction slopes, starting discharge). It then changes the working directory to the run's Output folder.
 2. `create_i0_simplex` builds the starting Nelder-Mead simplex: all lower bounds, random points within each range, and all upper bounds.
-3. `optimize_model` assembles the starting vector from the config and hands `calc_obj_function` to SciPy's Nelder-Mead or to `sambo`'s SCE-UA.
+3. `optimize_model` assembles the starting vector from the config and hands `calc_obj_function` to SciPy's Nelder-Mead or to `sambo`'s SCE-UA. It creates a fresh convergence tracker and an empty repeat-run cache for each call.
 4. Each time the optimizer asks for an objective value, `calc_obj_function`:
    - rounds the trial parameters to 6 decimals;
-   - writes them into the model (`apply_trial_parameters`): friction slopes into the flow file, Manning's n into the land-cover HDF (and bridge n into the geometry), discharge into the flow file;
+   - returns the stored objective value right away if exactly these parameters were already run during this optimization (see Repeat trials below);
+   - otherwise writes them into the model (`apply_trial_parameters`): friction slopes into the flow file, Manning's n into the land-cover HDF (and bridge n into the geometry), discharge into the flow file;
    - runs the plan through the COM controller and reads the last time step's water surface for every cell (`run_and_read_wse`; it waits 4 s afterward because results are not ready immediately);
    - compares modeled and observed WSE at the survey cells (`score_model`) and returns RMSE or MAE;
    - records the standard deviation of the recent objective values (see Early stopping);
    - appends the run to `model_iterations.csv` (`log_iteration`) and adds that run's WSE profile to `wse_profiles_output.csv` (`log_wse_profile`).
 5. When it finishes, the report is built (see [Calibration reports](#calibration-reports)).
+
+### Repeat trials
+
+Nelder-Mead sometimes asks for a parameter set it has already evaluated, for example when a contraction lands on an earlier vertex. Because the parameters are rounded to 6 decimals, these repeats match exactly. `calc_obj_function` keeps a dictionary of results for the current optimization and returns the stored value instead of running HEC-RAS again.
+
+- Repeats are not logged and do not enter the `Obj_Std` window, so `model_iterations.csv` can have fewer rows than SciPy's `nfev`.
+- The cache is created inside `optimize_model`, so each row of a batch calibration starts with an empty one.
+- When a repeat is skipped and `verbose` is on (or in batch mode), the console prints a "Repeat of an earlier trial" line.
 
 ### Early stopping
 
@@ -432,13 +457,15 @@ Discharge is one of the parameters, placed last. Use it when only high-water mar
 
 ### Batch calibration
 
-With `batch_process = true`, each row of the observation file is calibrated on its own, using that row's `Q(cfs)`. The last iteration of each row is appended to `batch_results.csv`. Batch mode currently supports `cal_observed` only, and no report is generated.
+With `batch_process = true`, each row of the observation file is calibrated on its own, using that row's `Q(cfs)`. Each row is scored at its single observation point. The last logged iteration of each row is appended to `batch_results.csv`. That row is the last model run of the optimization, which is usually, but not always, the best vertex SciPy reports. Every model run is also logged to `model_iterations.csv` with a `Batch_Row` column that identifies its optimization run.
+
+Batch mode currently supports `cal_observed` only. When all rows are finished, a batch report is built (see [Batch reports](#batch-reports)).
 
 ### Rating curve
 
 For each discharge (from `Q_list.csv`, or `q_divisions` steps between `min_cfs` and `max_cfs`), Q2Dpy sets the flow, optionally sets the discharge-dependent Manning's n, runs the plan, and appends a row to `rating_curve.csv`: orifice elevation, WSE, stage in m and ft, discharge in m3/s and cfs, and the n values used. Inundation shapefiles / GeoJSONs can be exported per run.
 
-To build the n-versus-Q trend, put calibrated results in `Input/trendline.csv` and use `plot_trend.py` to fit the `a` and `b` coefficients for each function type.
+To build the n-versus-Q trend, put calibrated results in `Input/trendline.csv` and use `plot_trend.py` to fit the `a` and `b` coefficients for each function type. The batch summary plot of n against Q shows the same relationship for a batch run.
 
 ### Single event
 
@@ -476,9 +503,9 @@ To build the n-versus-Q trend, put calibrated results in `Input/trendline.csv` a
 
 | File | Contents |
 |---|---|
-| `model_iterations.csv` | One row per model run: parameter values, discharge, friction slopes, `iteration`, `Obj_Func_Value`, `Obj_Std` (std of the last two simplexes' objective values) |
-| `wse_profiles_output.csv` | Observation points with a column `I<n>` of modeled WSE for each iteration |
-| `batch_results.csv` | Final iteration of each batch row |
+| `model_iterations.csv` | One row per model run: parameter values, discharge, friction slopes, `iteration`, `Obj_Func_Value`, `Obj_Std` (std of the last two simplexes' objective values). Batch runs also have `Batch_Row`, `Q(cfs)`, `Elev_m` and `Modeled_WSE` |
+| `wse_profiles_output.csv` | Observation points with a column `I<n>` of modeled WSE for each iteration (not written in batch mode) |
+| `batch_results.csv` | Last logged iteration of each batch row; the source of the batch summary plot |
 | `rating_curve.csv` | Stage-discharge results |
 | `inundation.shp`, `GeoJSONs/*.geojson` | Inundation extent exports |
 
@@ -486,9 +513,9 @@ To build the n-versus-Q trend, put calibrated results in `Input/trendline.csv` a
 
 The config TOML and a copy of every file that was in `Input/` when the run started.
 
-### Reports (Reporting/<run name>/)
+### Reports (`Reporting/<run name>/`)
 
-`report.html`, `figures/*.png`, `tables/*.csv`. See [Calibration reports](#calibration-reports).
+`report.html`, `figures/*.png`, `tables/*.csv`. Batch reports also have `figures/batch_summary.png`, `figures/runs/` (a convergence and a parameters plot for each optimization run), and the tables `run_summary.csv` and `batch_results.csv`. See [Calibration reports](#calibration-reports).
 
 ---
 
@@ -535,6 +562,9 @@ Harmless warning from the OpenMP runtime used by the 2D solver. It means two thr
 **HEC-RAS opens, but the plan never starts or closes after a few seconds**
 Confirm `hec_version` matches the installed ProgID exactly, that Python and HEC-RAS have the same bitness, and that no other HEC-RAS window is open. The controller should be dispatched once and `QuitRas()` called only after computation finishes.
 
+**`FutureWarning` about DataFrame concatenation with empty or all-NA entries (csv_log.py)**
+`Obj_Std` is empty for the first 2 x (n + 1) model runs of each optimization, and pandas warns when that empty value is appended to a file that already has numeric values (second and later batch rows). It is harmless. `append_row` avoids it by dropping all-empty columns from the new row before the concat.
+
 **`Config file not found`**
 `config.py` looks for `CONFIG_NAME` in the `configs` folder next to the code folder. Check the spelling and the folder location.
 
@@ -566,7 +596,10 @@ The report looks for `Input/<run name>` next to the `Output` folder. Pass `--inp
 More than one TOML is in the snapshot folder. Pass `--config <name>.toml`.
 
 **`NotImplementedError` from a report**
-Reports exist for calibration runs only (`cal_observed`, `cal_indirect`, `cal_EG_slope`), and not for batch calibrations.
+Reports exist for calibration runs only (`cal_observed`, `cal_indirect`, `cal_EG_slope`, including batch calibrations). Rating-curve and single-event runs have no report.
+
+**A batch report shows fewer runs than rows in the observation file**
+Old data without the `Batch_Row` column is split wherever `Q(cfs)` changes, so consecutive rows with the same discharge are merged. New runs record `Batch_Row` and are split correctly.
 
 **`ModuleNotFoundError: reporting` when running `run_report.py`**
 Run it as a module from the `q2dpy` folder (`python -m reporting.run_report`), or move it up next to `main.py`.
@@ -583,8 +616,8 @@ Run commands from the `q2dpy` folder with the environment active. Modules inside
 - **Adding a config key.** Add it to the TOML (in the section that fits), then read it as `config.<key>`. Keys must be unique across sections because the sections are flattened into one namespace. If you add a new section that holds settings, add its name to `_FLAT_SECTIONS` in `config.py`, and to `FLAT_SECTIONS` in `reporting/data.py` if reports need it. Add a check to `validate()` if the key has dependencies.
 - **Run folders.** All output paths come from `config._build_output_paths`. Code should read `config.output_directory` and the `*_filename` names after `start_run()` has been called, never build paths from the Output root.
 - **Model handle.** Use `HecRas.from_config()` to create a model handle. It only stores file paths, so creating one per run is cheap.
-- **Objective function structure.** `calc_obj_function` in `calibration.py` is a coordinator over small functions: `apply_trial_parameters`, `run_and_read_wse`, `collect_param_row`, `score_model`, `log_iteration` and `log_wse_profile`. Change behavior in the small function, not in the coordinator.
-- **Reporting structure.** `data.py` loads files and does the analysis with no plotting and no dependency on `config.py`; `plots.py` only draws; `builder.py` wires them together. To add a report type, subclass `CalibrationReport`, override the `extra_plots` and `extra_summary` hooks, and select it in `make_report`.
-- **Regression checks.** Before and after any refactor, run a short calibration (`max_runs = 5`) on the test project with `early_stop = false` and compare `model_iterations.csv`. Differences in the fourth significant figure are expected only when unit constants change.
+- **Objective function structure.** `calc_obj_function` in `calibration.py` is a coordinator over small functions: `apply_trial_parameters`, `run_and_read_wse`, `collect_param_row`, `score_model`, `log_iteration` and `log_wse_profile`. Change behavior in the small function, not in the coordinator. Per-optimization state (the convergence tracker and the repeat cache) is created in `optimize_model` and bound with `functools.partial`, not stored in module-level variables.
+- **Reporting structure.** `data.py` loads files and does the analysis with no plotting and no dependency on `config.py`; `plots.py` only draws; `builder.py` wires them together. To add a report type, subclass `CalibrationReport`, override the `extra_plots` and `extra_summary` hooks (or `run`, as `BatchReport` does), and select it in `make_report`. `batch.py` holds `BatchReport` and is imported inside `make_report` to avoid a circular import with `builder.py`.
+- **Regression checks.** Before and after any refactor, run a short calibration (`max_runs = 5`) on the test project with `early_stop = false` and compare `model_iterations.csv`. Differences in the fourth significant figure are expected only when unit constants change. Repeat trials are skipped by the cache, so row counts can drop compared with runs made before it existed.
 - **Deprecated.** `raster_processing.py` is superseded by `shape_export.py`. `FlowFileParser.update_unsteady_flow` and `PlanFileParser.update_simulation_date` are marked deprecated in their docstrings. The old notebook reports (`HECRAS_Calibration_Report.ipynb`, `HECRAS_Indirect_Report.ipynb`) were replaced by the `reporting` package.
-- **Known loose ends.** `generate_ratingcurve` and `sim_event` assume the first observation point is the gauge cell. Batch mode is implemented for `cal_observed` only, and has no report. `HydraulicModel` is an empty base class.
+- **Known loose ends.** `generate_ratingcurve` and `sim_event` assume the first observation point is the gauge cell. Batch mode is implemented for `cal_observed` only. `HydraulicModel` is an empty base class.

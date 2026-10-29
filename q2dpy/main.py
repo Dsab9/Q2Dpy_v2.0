@@ -63,7 +63,7 @@ def main():
         sim_event(config.max_q, obs_df)
 
     # create calibration report
-    if any([config.cal_indirect, config.cal_observed]) and config.batch_process is not True:
+    if any([config.cal_indirect, config.cal_observed]):
         try:
             report_dir = make_report(config.output_directory).run()
             print(f"Report is in {report_dir}")
@@ -72,7 +72,7 @@ def main():
                   f"python -m reporting {config.output_directory}")
 
     print(f"Done. Outputs are in {config.output_directory}")
-    
+
 
 
 if __name__ == "__main__":

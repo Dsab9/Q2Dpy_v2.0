@@ -17,7 +17,8 @@ def append_row(path, row):
     path = Path(path)
     new_df = pd.DataFrame([row])
     if path.is_file():
-        new_df = pd.concat([pd.read_csv(path), new_df], ignore_index=True)
+        new_df = pd.concat([pd.read_csv(path), new_df.dropna(axis=1, how='all')],
+                           ignore_index=True)
     new_df.to_csv(path, index=False)
 
 
