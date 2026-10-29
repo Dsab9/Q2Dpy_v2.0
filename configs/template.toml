@@ -7,15 +7,15 @@ gauge_el_NAVD88m = 1348.689
 
 # ---------------------------------------------------------------- run mode
 [mode]
-cal_observed = true
-cal_indirect = false
-cal_EG_slope = false
-gen_ratecurv = false
-sim_event    = false
+cal_observed = true                # calibrates manning's n regions given a discharge and water surface elevation(s)
+cal_indirect = false               # calibrates manning's n regions and discharge simultaniously given water surface elevation(s)
+cal_EG_slope = false               # calibrates upstream and downstream energy gradient, may be used by itself or with other modes
+gen_ratecurv = false               # runs HEC-RAS given input discharges to generating a gage rating
+sim_event    = false               # initiates HEC-RAS given starting parameters
 
 # ------------------------------------------------------------- calibration
 [calibration]
-batch_process      = false         # calibrate list of given discharges
+batch_process      = false         # calibrate list of given discharges (only works with cal_observed)
 create_i0_simplex  = true          # only works with Nelder-Mead
 algorythm          = "Nelder-Mead" # "Nelder-Mead" | "SCE-UA"
 objective_function = "RMSE"        # "RMSE" | "MAE"
@@ -105,7 +105,7 @@ computation_interval = "0.5SEC"
 
 # ------------------------------------------------------- reporting
 [report]
-report_tol_m = 0.03    # a run counts as acceptable if its objective is within this many meters of the best run
+report_tol_m = 0.03
 
 # ------------------------------------------------------- labeling bugfix
 [labels]

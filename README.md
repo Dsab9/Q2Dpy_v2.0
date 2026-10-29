@@ -303,7 +303,16 @@ These are computed by `config.py`: `Q_params_vals`, `min_q`, `max_q` (m3/s from 
 python main.py
 ```
 
-On start-up, `config.validate()` checks that the project files exist, that a run mode is selected, that lists have matching lengths, that `early_stop_tol` is set when `early_stop` is on, and a few option dependencies (for example `export_geojsons` needs `export_shapefile`). Then `config.start_run()` creates the run folders, and `config.snapshot_inputs()` copies the config and input files into the run's Input folder, so every result set records the settings and data that produced it.
+On start-up, `config.validate()` checks the whole config before any model run and reports every problem at once:
+
+- **Files:** the project, geometry, flow, plan, land-cover HDF and plan results HDF exist, along with the observation CSV, and the mesh shapefile, terrain raster or Q list when an option needs them. A missing plan results HDF means the plan has not been run once in the HEC-RAS GUI.
+- **Run mode:** a mode is selected, `cal_observed` and `cal_indirect` are not both on, `gen_ratecurv` and `sim_event` are not combined with each other or with a calibration, and `batch_process` is used with `cal_observed` only.
+- **Calibration:** `Man_n_vals` and `Man_n_params` match in length, the objective function and algorithm are recognized, `FS_params` is valid, `early_stop_tol` is set when `early_stop` is on, and `max_runs` is a positive whole number.
+- **Bounds:** `bounds` and `i0_guess` have one row per calibrated parameter, each row is (low, high) with low below high, and every starting value lies inside its bounds. An `i0_guess` range that extends outside its bounds gives a warning.
+- **Rating curve and event settings:** the discharge range and `q_divisions`, the trend-line lists and function types, the simulation start and end dates and times, and `sim_time_hr`.
+- **General:** `hec_version` is digits, `EPSG` starts with `EPSG:`, and `report_tol_m` is positive when set.
+
+Errors stop the run with a list of every problem. Warnings are printed and the run continues. After the model handle is created, `check_model_names()` also confirms that the Manning's n region names in the config exist in the land-cover HDF. Then `config.start_run()` creates the run folders, and `config.snapshot_inputs()` copies the config and input files into the run's Input folder, so every result set records the settings and data that produced it.
 
 HEC-RAS opens on screen for each model run, then closes. Do not use the computer's HEC-RAS windows while a calibration is running.
 
