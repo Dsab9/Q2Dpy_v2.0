@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import sambo
 import scipy.optimize
+from collections import deque
 
 import config
 from csv_log import append_row, next_iteration
@@ -158,8 +159,9 @@ def score_model(ras_wse, obs_df, batch_row=None):
     return rmse, ras_wse_pnts
 
 
-def log_iteration(hecmodel, params_row, q_val, rmse, iteration, batch_row=None):
-    """Appends this model run to the iterations csv (parameters, discharge, objective value).
+def log_iteration(hecmodel, params_row, q_val, rmse, iteration, batch_row=None, obj_std=None):
+    """Appends this model run to the iterations csv (parameters, discharge, objective value,
+    and the std of the last two simplexes' worth of objective values).
 
     Batch runs also record the observed discharge, observed elevation and modeled
     elevation; normal runs record the friction slopes when they are being calibrated.
@@ -174,6 +176,7 @@ def log_iteration(hecmodel, params_row, q_val, rmse, iteration, batch_row=None):
         row_out['ds_fs'] = slopes[-1]
     row_out['iteration'] = iteration
     row_out['Obj_Func_Value'] = rmse
+    row_out['Obj_Std'] = obj_std
     if batch_row is not None:
         row_out['Q(cfs)'] = batch_row['Q(cfs)']
         row_out['Elev_m'] = batch_row['Elev_m']
@@ -192,12 +195,12 @@ def log_wse_profile(obs_df, ras_wse_pnts, iteration):
     cell_df.to_csv(config.wse_prof_filename, index=False)
 
 
-def calc_obj_function(input_vals, obs_df=None, batch_row=None):
+def calc_obj_function(input_vals, obs_df=None, batch_row=None, tracker=None):
     """Objective function called by the optimizer.
 
     Applies the trial parameters, runs HEC-RAS, compares modeled and observed
-    water surface elevations, logs the iteration, and returns the objective
-    function value (RMSE or MAE) for the optimizer to minimize.
+    water surface elevations, logs the iteration (with the running std of the
+    objective value), and returns the objective value (RMSE or MAE) to minimize.
     """
     # round inputs to 10^-6
     input_vals = [round(x, 6) for x in input_vals]
@@ -215,7 +218,9 @@ def calc_obj_function(input_vals, obs_df=None, batch_row=None):
         print(f"RMSE: {rmse}")
         print("")
 
-    log_iteration(hecmodel, params_row, q_val, rmse, iteration, batch_row)
+    obj_std = tracker.add(rmse) if tracker is not None else None
+
+    log_iteration(hecmodel, params_row, q_val, rmse, iteration, batch_row, obj_std)
     if batch_row is None:
         log_wse_profile(obs_df, ras_wse_pnts, iteration)
 

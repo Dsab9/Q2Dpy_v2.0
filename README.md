@@ -168,7 +168,7 @@ Q2Dpy/
 
 ## Setting up a site
 
-Q2Dpy reads and **overwrites** files inside your HEC-RAS project (the flow file, the land-cover HDF, parts of the geometry). **Always work on a copy of the model**, and keep the original untouched.
+Q2Dpy reads and **overwrites** files inside your HEC-RAS project (flow file, land-cover HDF, plan file, and geometry file). **Working on a copy of HEC-RAS files is recommended.**
 
 Expected data folder:
 
@@ -182,7 +182,7 @@ Expected data folder:
 
 Checklist before the first run:
 
-1. The plan runs cleanly in the HEC-RAS GUI, with no mesh errors, and its geometry and unsteady flow file are assigned.
+1. The plan runs cleanly in the HEC-RAS GUI, with no mesh errors, and its geometry and unsteady flow file are assigned. MODEL MUST BE RUN AT LEAST ONCE MANUALLY AND HEC-RAS CLOSED PRIOR TO AUTOMATION!
 2. The unsteady flow file has an upstream hydrograph boundary and a downstream normal depth (friction slope) boundary. Their names must match `us_bc` and `ds_bc` in the config.
 3. Manning's n calibration regions exist in the land-cover HDF, and their names match `Man_n_params`.
 4. The mesh shapefile (exported from RAS Mapper with a `CellIndex` field) is in `GIS/`.
@@ -271,7 +271,7 @@ Optional keys have defaults defined in `config.py` (`_DEFAULTS`), so older confi
 
 ### `[labels]`
 
-`perimeter` (2D flow area name), `us_bc`, `ds_bc` (boundary condition names). These must match the names inside the HEC-RAS HDF files.
+`perimeter` (2D flow area name), `us_bc`, `ds_bc` (boundary condition names). These must match the names inside the HEC-RAS geometry HDF files.
 
 ### Calculated values
 
@@ -398,9 +398,8 @@ If you rerun in an Output folder that already has a `model_iterations.csv` from 
 
 - HEC-RAS values and internal calculations are SI: discharge in m3/s, elevations in m.
 - Config inputs and some output columns use cfs and feet (`Q_params_cfs`, `min_cfs`, `max_cfs`, `Q(cfs)`, `stage(ft)`).
-- All conversions go through `units.py` (`cfs_to_cms`, `cms_to_cfs`, `m_to_ft`, `ft_to_m`). The exact constants are 1 cfs = 0.028316846592 m3/s and 1 ft = 0.3048 m. `config.py` takes its cfs-to-m3/s factor from `units.py`.
-- `aquarius.py` still hard-codes the rounded factor `0.02832` for the AQUARIUS conversion, so a gauge discharge converted there differs slightly from one converted through `units.py`.
-- Results from older versions that used `35.315`, `0.02832` or `3.2808` can differ in the fourth significant figure.
+- All conversions go through `units.py` (`cfs_to_cms`, `cms_to_cfs`, `m_to_ft`, `ft_to_m`). The constants used are 1 cfs = 0.02832 m3/s and 1 ft = 0.3048 m. `config.py` takes its cfs-to-m3/s factor from `units.py`.
+- `aquarius.py` still hard-codes the rounded factor `0.02832` for the AQUARIUS conversion.
 - Manning's n calibration region names are stored as bytes in the HDF files. `string_to_binary` and `binary_to_string` in `model.py` convert between the two.
 
 ---
