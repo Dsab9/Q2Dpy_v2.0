@@ -21,6 +21,9 @@ algorythm          = ""            # MISSING in source; "Nelder-Mead" | "SCE-UA"
 objective_function = ""            # MISSING in source; "RMSE" | "MAE"
 max_runs           = 250
 
+early_stop     = false    # ends optimization function given tolerance met
+early_stop_tol = 0.0001   # std of the last 2(n+1) objective values; same units as the objective (m for RMSE)
+
 structures             = false     # assign channel n to structures in cal_observed (currently assigns channel n to structure)
 independent_structures = false     # calibrate structures separately from channel; input to simplex same as Q (structures must be true)
 

@@ -4,6 +4,9 @@ Layout:
     OLD_ROOT/<site folder>/<config>.py
 Output:
     OUT_DIR/<site folder lowercase>_<file stem>.toml
+
+Keys that did not exist in legacy configs (early_stop, early_stop_tol) are filled
+with defaults instead of being flagged as missing.
 """
 import json
 import re
@@ -11,8 +14,8 @@ import runpy
 from pathlib import Path
 
 # ============================== EDIT THESE ====================================
-OLD_ROOT = Path(r"C:\Users\CND367\Documents\Python_Scripts\Q2Dpy\Site_Configs")
-OUT_DIR = Path(r"C:\Users\CND367\Documents\Python_Scripts\Q2Dpy\Configs\legacy")
+OLD_ROOT = Path(r"C:\Users\CND367\Documents\Python_Scripts\Q2Dpy\old")
+OUT_DIR = Path(r"C:\Users\CND367\Documents\Python_Scripts\Q2Dpy\configs\legacy")
 OVERWRITE = True
 # ==============================================================================
 
@@ -38,6 +41,9 @@ create_i0_simplex  = true          # only works with Nelder-Mead
 algorythm          = "Nelder-Mead" # "Nelder-Mead" | "SCE-UA"
 objective_function = "RMSE"        # "RMSE" | "MAE"
 max_runs           = 300
+
+early_stop     = true     # ends optimization function given tolerance met
+early_stop_tol = 1e-4     # std of the last 2(n+1) objective values; same units as the objective (m for RMSE)
 
 structures             = false     # assign channel n to structures in cal_observed (currently assigns channel n to structure)
 independent_structures = false     # calibrate structures separately from channel; input to simplex same as Q (structures must be true)
@@ -133,7 +139,8 @@ DIRECT = {
     "mode": ["cal_observed", "cal_indirect", "cal_EG_slope", "gen_ratecurv", "sim_event"],
     "calibration": [
         "batch_process", "create_i0_simplex", "algorythm", "objective_function",
-        "max_runs", "structures", "independent_structures", "set_friction_slope",
+        "max_runs", "early_stop", "early_stop_tol",
+        "structures", "independent_structures", "set_friction_slope",
         "FS_params", "upstream_friction_slope", "downstream_friction_slope",
         "Man_n_params", "Man_n_vals", "Q_params", "Q_params_cfs", "bounds", "i0_guess",
     ],
@@ -151,6 +158,13 @@ DIRECT = {
 INPUT_KEYS = ["grid_filename", "terrain_raster", "wse_filename", "trendline", "q_list"]
 OUTPUT_KEYS = ["simplex_filename", "iterations_filename", "wse_prof_filename",
                "rating_curve_filename", "batch_filename"]
+
+# keys that did not exist in legacy configs: written with these defaults, not flagged MISSING.
+# early_stop is off so converted configs behave exactly as they did before.
+NEW_KEY_DEFAULTS = {
+    ("calibration", "early_stop"): False,
+    ("calibration", "early_stop_tol"): 1e-4,
+}
 
 
 # ------------------------------------------------------------ value formatting
@@ -210,7 +224,7 @@ def collect_values(ns):
     vals = {}
     for sec, keys in DIRECT.items():
         for k in keys:
-            vals[(sec, k)] = ns.get(k, MISSING)
+            vals[(sec, k)] = ns.get(k, NEW_KEY_DEFAULTS.get((sec, k), MISSING))
 
     d = ns.get("Directory")
     vals[("paths", "directory")] = str(d) if d is not None else MISSING
