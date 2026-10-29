@@ -15,6 +15,24 @@ from model import HecRas
 from objectivefun import obj_func
 
 
+# --------------------------------------------------------------- validations
+def check_model_names(hecmodel):
+    """Stops early if a Manning's n region named in the config is not in the land-cover file."""
+    wanted = set()
+    if any([config.cal_observed, config.cal_indirect]):
+        wanted |= set(config.Man_n_params)
+    if config.gen_ratecurv is True and config.adjust_n_rating:
+        wanted |= set(config.n_regions)
+    if not wanted:
+        return
+    man_tab = hecmodel.get_Mannings_calibration_regions(config.lchdf_filename)
+    present = set(hecmodel.binary_to_string([row[0] for row in man_tab]))
+    missing = sorted(wanted - present)
+    if missing:
+        raise SystemExit(f"Config errors:\n  - Region(s) not found in the land-cover HDF: {missing}. "
+                         f"Available: {sorted(present)}")
+
+
 # --------------------------------------------------------------- observations
 def required_obs_columns():
     """Columns the observation csv must contain for the current run mode.

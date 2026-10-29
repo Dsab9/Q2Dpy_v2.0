@@ -168,49 +168,186 @@ def snapshot_inputs():
 
 
 # ------------------------------------------------------------------ validation
-def validate():
-    """Fail early on obvious config problems. Call once at the start of main."""
-    errors = []
+def _get(name, default=None):
+    """Optional config value (older TOMLs may not define every key)."""
+    return globals().get(name, default)
 
+
+def _initial_vector():
+    """Starting parameter vector, built the same way calibration.optimize_model builds it.
+    Used to check the bounds. Returns None when no calibration mode is on."""
+    if cal_observed is True:
+        if cal_EG_slope is True:
+            return list(friction_slope)
+        vec = list(Man_n_vals)
+        if independent_structures is True:
+            vec.append(Man_n_vals[0])
+        return vec
+    if cal_indirect is True:
+        vec = list(friction_slope) if cal_EG_slope is True else []
+        vec.extend(Man_n_vals)
+        if independent_structures is True:
+            vec.append(Man_n_vals[0])
+        vec.append(Q_params_vals[0])
+        return vec
+    if cal_EG_slope is True:
+        return list(friction_slope)
+    return None
+
+
+def _ras_datetime(date_str, time_str):
+    """Parses '07JUN2023' + '03:00'. HEC-RAS also allows '24:00' (midnight of the next day)."""
+    from datetime import timedelta
+    if time_str == "24:00":
+        return datetime.strptime(date_str.upper(), "%d%b%Y") + timedelta(days=1)
+    return datetime.strptime(f"{date_str.upper()} {time_str}", "%d%b%Y %H:%M")
+
+
+def validate():
+    """Fail early on config problems. Call once at the start of main.
+    Errors stop the run; warnings are printed and the run continues."""
+    errors, warnings = [], []
+    cal_modes = (cal_observed, cal_indirect, cal_EG_slope)
+    is_cal = any(m is True for m in cal_modes)
+
+    # ---- files
     for label, p in (("project", prj_filename), ("geometry", geom_filename),
-                     ("flow", flow_filename), ("plan", plan_filename)):
+                     ("flow", flow_filename), ("plan", plan_filename),
+                     ("land cover HDF", lchdf_filename)):
         if not p.is_file():
             errors.append(f"Missing {label} file: {p}")
+    if not phdf_filename.is_file():
+        errors.append(f"Missing plan results HDF: {phdf_filename}. Run the plan once in the "
+                      "HEC-RAS GUI, then close HEC-RAS, before automating.")
+    if not wse_filename.is_file() and (is_cal or gen_ratecurv is True or sim_event is True):
+        errors.append(f"Missing observation file: {wse_filename}")
+    if _get("find_cell_index") is True and not grid_filename.is_file():
+        errors.append(f"find_cell_index needs the mesh shapefile: {grid_filename}")
+    if _get("export_shapefile") is True and not terrain_raster.is_file():
+        errors.append(f"export_shapefile needs the terrain raster: {terrain_raster}")
+    if gen_ratecurv is True and _get("use_Q_list") is True and not q_list.is_file():
+        errors.append(f"use_Q_list is on but the file is missing: {q_list}")
 
+    # ---- run mode combinations
     if not any((cal_observed, cal_indirect, cal_EG_slope, gen_ratecurv, sim_event)):
         errors.append("No run mode is true in [mode].")
+    if cal_observed is True and cal_indirect is True:
+        errors.append("cal_observed and cal_indirect cannot both be true.")
+    if gen_ratecurv is True and sim_event is True:
+        errors.append("gen_ratecurv and sim_event cannot both be true.")
+    if (gen_ratecurv is True or sim_event is True) and is_cal:
+        errors.append("gen_ratecurv / sim_event cannot be combined with a calibration mode.")
+    if batch_process is True and not (cal_observed is True and cal_indirect is not True
+                                      and cal_EG_slope is not True):
+        errors.append("batch_process currently supports cal_observed only "
+                      "(not cal_indirect or cal_EG_slope).")
+    if _get("get_inst_q") is True and sim_event is not True:
+        warnings.append("get_inst_q only affects sim_event; it is ignored in this mode.")
 
-    if globals().get('early_stop', False) is True:
-        tol = globals().get('early_stop_tol')
-        if tol is None or tol <= 0:
-            errors.append("early_stop = true requires early_stop_tol > 0 in [calibration].")
+    # ---- calibration settings
+    if is_cal:
+        if len(Man_n_vals) != len(Man_n_params):
+            errors.append(f"Man_n_vals ({len(Man_n_vals)}) and Man_n_params "
+                          f"({len(Man_n_params)}) differ in length.")
+        if any(v <= 0 for v in Man_n_vals):
+            errors.append("Man_n_vals must all be greater than 0.")
+        if str(objective_function).upper() not in ("RMSE", "MAE"):
+            errors.append(f"Unknown objective_function: {objective_function} (use RMSE or MAE).")
+        if str(algorythm).lower() not in ("nelder-mead", "sce-ua"):
+            errors.append(f"Unknown algorythm: {algorythm}")
+        if not isinstance(max_runs, int) or max_runs < 1:
+            errors.append("max_runs must be a whole number of at least 1.")
+        if create_i0_simplex is True and str(algorythm).lower() == "sce-ua":
+            warnings.append("create_i0_simplex is documented for Nelder-Mead only.")
 
-    if len(Man_n_vals) != len(Man_n_params):
-        errors.append(
-            f"Man_n_vals ({len(Man_n_vals)}) and Man_n_params "
-            f"({len(Man_n_params)}) differ in length."
-        )
-    if len(bounds) != len(i0_guess):
-        errors.append(
-            f"bounds ({len(bounds)}) and i0_guess ({len(i0_guess)}) differ in length."
-        )
-    if adjust_n_rating:
-        lens = {len(a), len(b), len(n_regions), len(function_type),
-                len(max_n), len(min_n)}
+        if cal_EG_slope is True:
+            fs = list(FS_params)
+            if not fs or any(f not in ("us_fs", "ds_fs") for f in fs):
+                errors.append('FS_params must be "us_fs", "ds_fs" or both when cal_EG_slope is on.')
+            elif len(fs) == 2 and fs[0] != "us_fs":
+                errors.append("FS_params: us_fs must come first when both are used.")
+        if any(s <= 0 for s in friction_slope if s is not None):
+            errors.append("Friction slopes must be greater than 0.")
+
+        if early_stop is True:
+            tol = _get("early_stop_tol")
+            if tol is None or tol <= 0:
+                errors.append("early_stop = true requires early_stop_tol > 0 in [calibration].")
+
+        # bounds and starting simplex
+        vec = _initial_vector()
+        if len(bounds) != len(i0_guess):
+            errors.append(f"bounds ({len(bounds)}) and i0_guess ({len(i0_guess)}) differ in length.")
+        if vec is not None and len(bounds) != len(vec):
+            errors.append(f"bounds has {len(bounds)} row(s) but this mode calibrates {len(vec)} "
+                          "parameter(s). Order: friction slopes, Manning's n regions, "
+                          "structure n (if independent), discharge (cal_indirect).")
+        for i, b in enumerate(bounds):
+            if len(b) != 2 or not b[0] < b[1]:
+                errors.append(f"bounds row {i + 1} must be (low, high) with low < high: {b}")
+        for i, g in enumerate(i0_guess):
+            if len(g) != 2 or g[0] > g[1]:
+                errors.append(f"i0_guess row {i + 1} must be (low, high) with low <= high: {g}")
+        if vec is not None and len(bounds) == len(vec) and not errors:
+            for i, (v, (lo, hi)) in enumerate(zip(vec, bounds)):
+                if not lo <= v <= hi:
+                    errors.append(f"Starting value {v} for parameter {i + 1} is outside "
+                                  f"its bounds ({lo}, {hi}).")
+            if len(i0_guess) == len(bounds):
+                for i, ((glo, ghi), (lo, hi)) in enumerate(zip(i0_guess, bounds)):
+                    if glo < lo or ghi > hi:
+                        warnings.append(f"i0_guess row {i + 1} ({glo}, {ghi}) extends outside "
+                                        f"its bounds ({lo}, {hi}).")
+
+        if structures is False and independent_structures:
+            errors.append("independent_structures requires structures = true.")
+        if cal_indirect is True and Q_params_cfs <= 0:
+            errors.append("Q_params_cfs must be greater than 0.")
+
+    # ---- rating curve
+    if gen_ratecurv is True:
+        if _get("use_Q_list") is not True:
+            if not max_cfs > min_cfs:
+                errors.append("max_cfs must be greater than min_cfs.")
+            if not isinstance(q_divisions, int) or q_divisions < 1:
+                errors.append("q_divisions must be a whole number of at least 1.")
+    if adjust_n_rating and (gen_ratecurv is True):
+        lens = {len(a), len(b), len(n_regions), len(function_type), len(max_n), len(min_n)}
         if len(lens) != 1:
-            errors.append(
-                "a, b, n_regions, function_type, max_n and min_n must be "
-                "the same length."
-            )
+            errors.append("a, b, n_regions, function_type, max_n and min_n must be the same length.")
         if any(lo > hi for lo, hi in zip(min_n, max_n)):
             errors.append("min_n is larger than max_n for at least one region.")
-    if algorythm.lower() not in ("nelder-mead", "sce-ua"):
-        errors.append(f"Unknown algorythm: {algorythm}")
-    if export_geojsons and not export_shapefile:
-        errors.append("export_geojsons requires export_shapefile = true.")
-    if structures is False and independent_structures:
-        errors.append("independent_structures requires structures = true.")
+        bad = [f for f in function_type if f not in ("linear", "log", "exp", "power", "hyper")]
+        if bad:
+            errors.append(f"Unknown function_type value(s): {bad}")
 
+    # ---- single event / simulation window
+    if sim_event is True or gen_ratecurv is True:
+        if _get("export_geojsons") and not _get("export_shapefile"):
+            errors.append("export_geojsons requires export_shapefile = true.")
+    if set_datetime is True:
+        try:
+            t0 = _ras_datetime(start_date, start_time)
+            t1 = _ras_datetime(end_date, end_time)
+            if t1 <= t0:
+                errors.append("The simulation end must be after the start.")
+        except (ValueError, TypeError):
+            errors.append("start_date/end_date must look like 07JUN2023 and "
+                          "start_time/end_time like 03:00.")
+    if change_sim_time is True and sim_time_hr < 1:
+        errors.append("sim_time_hr must be at least 1.")
+
+    # ---- general
+    if not str(hec_version).isdigit():
+        errors.append(f'hec_version should be digits such as "701", got {hec_version!r}.')
+    if not str(EPSG).upper().startswith("EPSG:"):
+        errors.append(f'EPSG should look like "EPSG:6514", got {EPSG!r}.')
+    tol_m = _raw.get("report", {}).get("report_tol_m")
+    if tol_m is not None and tol_m <= 0:
+        errors.append("[report] report_tol_m must be greater than 0.")
+
+    for w in warnings:
+        print(f"Config warning: {w}")
     if errors:
         raise SystemExit("Config errors:\n  - " + "\n  - ".join(errors))
 

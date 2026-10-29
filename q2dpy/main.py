@@ -3,7 +3,7 @@
 import os
 
 import config
-from calibration import create_i0_simplex, load_obs_df, optimize_model
+from calibration import create_i0_simplex, load_obs_df, optimize_model, check_model_names
 from csv_log import append_last_row
 from grid import get_cell_index
 from model import HecRas
@@ -24,6 +24,7 @@ def main():
 
     # one model handle for all setup steps (it only stores file paths)
     hecmodel = HecRas.from_config()
+    check_model_names(hecmodel)
 
     if config.set_datetime is True:
         hecmodel.update_datetime()
