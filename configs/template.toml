@@ -103,6 +103,10 @@ end_date   = "07JUN2023"
 end_time   = "03:00"
 computation_interval = "0.5SEC"
 
+# ------------------------------------------------------- reporting
+[report]
+report_tol_m = 0.03    # a run counts as acceptable if its objective is within this many meters of the best run
+
 # ------------------------------------------------------- labeling bugfix
 [labels]
 perimeter = "Perimeter"

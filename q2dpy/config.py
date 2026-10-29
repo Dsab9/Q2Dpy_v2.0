@@ -3,10 +3,15 @@
 Reads a TOML site config and exposes its values as module-level names, so the
 rest of the code can keep using `import config` and `config.<name>`.
 
+Per-run folders: call start_run() once at the start of a run. It creates
+Input/<run name> (a snapshot of the input files, for logging) and
+Output/<run name> (everything the run writes), and points the output paths at it.
 """
 import shutil
 import tomllib
+from datetime import datetime
 from pathlib import Path
+
 import units
 
 # ======================= EDIT THIS LINE TO CHOOSE PROJECT =======================
@@ -29,10 +34,7 @@ _FLAT_SECTIONS = (
     "mode", "calibration", "options", "ratecurve", "sim_event", "labels",
 )
 
-_DEFAULTS = {"early_stop": False, "early_stop_tol": None}
-
-_flat = dict(_DEFAULTS)
-_flat.update({k: v for k, v in _raw.items() if not isinstance(v, dict)})
+_flat = {k: v for k, v in _raw.items() if not isinstance(v, dict)}
 for _sec in _FLAT_SECTIONS:
     _flat.update(_raw.get(_sec, {}))
 globals().update(_flat)
@@ -51,9 +53,8 @@ friction_slope = [upstream_friction_slope, downstream_friction_slope]
 Directory = Path(_raw["paths"]["directory"])
 ras_directory = Directory / "RAS_files"
 gis_directory = Directory / "GIS"
-geojson_directory = gis_directory / "GeoJSONs"
 input_directory = Directory / "Input"
-output_directory = Directory / "Output"
+output_root = Directory / "Output"          # parent of all per-run output folders
 
 
 # ----------------------------------------------------------------- RAS project
@@ -77,17 +78,93 @@ trendline = input_directory / _in["trendline"]
 q_list = input_directory / _in["q_list"]
 
 _out = _raw["outputs"]
-simplex_filename = output_directory / _out["simplex_filename"]
-iterations_filename = output_directory / _out["iterations_filename"]
-wse_prof_filename = output_directory / _out["wse_prof_filename"]
-rating_curve_filename = output_directory / _out["rating_curve_filename"]
-batch_filename = output_directory / _out["batch_filename"]
+
+
+def _build_output_paths(out_dir):
+    """(Re)builds every output path under out_dir."""
+    global output_directory, geojson_directory
+    global simplex_filename, iterations_filename, wse_prof_filename
+    global rating_curve_filename, batch_filename
+    output_directory = out_dir
+    geojson_directory = out_dir / "GeoJSONs"
+    simplex_filename = out_dir / _out["simplex_filename"]
+    iterations_filename = out_dir / _out["iterations_filename"]
+    wse_prof_filename = out_dir / _out["wse_prof_filename"]
+    rating_curve_filename = out_dir / _out["rating_curve_filename"]
+    batch_filename = out_dir / _out["batch_filename"]
+
+
+# before start_run() the outputs point at the Output root (so importing config alone is harmless)
+_build_output_paths(output_root)
+
+run_name = None
+run_input_directory = None
 
 
 # ------------------------------------------------------ derived discharge vals
 Q_params_vals = [round(Q_params_cfs * CFS_TO_CMS, 3)]
 min_q = round(min_cfs * CFS_TO_CMS, 3)
 max_q = round(max_cfs * CFS_TO_CMS, 3)
+
+
+# ------------------------------------------------------------------ run folders
+def run_label():
+    """Mode part of the run name, e.g. 'cal_observed', 'cal_observed_EG', 'cal_indirect_batch'."""
+    if cal_observed:
+        label = "cal_observed"
+    elif cal_indirect:
+        label = "cal_indirect"
+    elif gen_ratecurv:
+        label = "gen_ratecurv"
+    elif sim_event:
+        label = "sim_event"
+    elif cal_EG_slope:
+        label = "cal_EG_slope"
+    else:
+        label = "run"
+
+    if cal_EG_slope and label not in ("cal_EG_slope", "run"):
+        label += "_EG"
+    if batch_process is True and label.startswith("cal_"):
+        label += "_batch"
+    return label
+
+
+def start_run():
+    """Creates this run's Input and Output subfolders (same name in both) and points
+    the output paths at the new Output subfolder. Call once, after validate()."""
+    global run_name, run_input_directory
+
+    base = f"{datetime.now():%Y%m%d}_{run_label()}"
+    name, n = base, 0
+    while (input_directory / name).exists() or (output_root / name).exists():
+        n += 1
+        name = f"{base}_{n}"
+
+    run_name = name
+    run_input_directory = input_directory / name
+    run_input_directory.mkdir(parents=True)
+    out_dir = output_root / name
+    out_dir.mkdir(parents=True)
+    _build_output_paths(out_dir)
+
+    print(f"Run: {run_name}")
+    print(f"  Input snapshot : {run_input_directory}")
+    print(f"  Outputs        : {output_directory}")
+    return run_name
+
+
+def snapshot_inputs():
+    """Logs what the run used: copies the config TOML and the files currently in the
+    Input folder (not the earlier run subfolders) into this run's Input subfolder.
+    Call after any step that edits an input file (e.g. cell index lookup)."""
+    shutil.copy2(CONFIG_PATH, run_input_directory / CONFIG_PATH.name)
+    copied = 0
+    for p in sorted(input_directory.iterdir()):
+        if p.is_file():
+            shutil.copy2(p, run_input_directory / p.name)
+            copied += 1
+    print(f"Snapshot: {CONFIG_PATH.name} and {copied} input file(s) copied to {run_input_directory}")
 
 
 # ------------------------------------------------------------------ validation
@@ -103,8 +180,10 @@ def validate():
     if not any((cal_observed, cal_indirect, cal_EG_slope, gen_ratecurv, sim_event)):
         errors.append("No run mode is true in [mode].")
 
-    if early_stop and (early_stop_tol is None or early_stop_tol <= 0):
-        errors.append("early_stop = true requires early_stop_tol > 0 in [calibration].")
+    if globals().get('early_stop', False) is True:
+        tol = globals().get('early_stop_tol')
+        if tol is None or tol <= 0:
+            errors.append("early_stop = true requires early_stop_tol > 0 in [calibration].")
 
     if len(Man_n_vals) != len(Man_n_params):
         errors.append(
@@ -134,12 +213,5 @@ def validate():
 
     if errors:
         raise SystemExit("Config errors:\n  - " + "\n  - ".join(errors))
-
-
-# -------------------------------------------------------------------- snapshot
-def snapshot_config():
-    """Copy the TOML into the Output folder so results record their settings."""
-    output_directory.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(CONFIG_PATH, output_directory / CONFIG_PATH.name)
 
 
