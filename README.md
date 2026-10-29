@@ -1,6 +1,6 @@
 # Q2Dpy
 
-Python automation for calibrating and running 2D HEC-RAS models. Q2Dpy edits a HEC-RAS project's input files, runs the plan through the HEC-RAS COM controller, reads the results from the plan HDF file, and repeats until a calibration converges or a set of discharges has been run.
+Python automation for calibrating and running 2D HEC-RAS models. Q2Dpy edits a HEC-RAS project's input files, runs the plan through the HEC-RAS COM controller, reads the results from the plan HDF file, and repeats until a calibration converges or a set of discharges has been run. Every run gets its own dated Input and Output folder, and finished calibrations produce an HTML report.
 
 It supports four workflows:
 
@@ -23,12 +23,14 @@ It supports four workflows:
 4. [Setting up a site](#setting-up-a-site)
 5. [Configuration reference](#configuration-reference)
 6. [Running Q2Dpy](#running-q2dpy)
-7. [How each workflow works](#how-each-workflow-works)
-8. [Input and output files](#input-and-output-files)
-9. [Units and conventions](#units-and-conventions)
-10. [Converting legacy configs](#converting-legacy-configs)
-11. [Troubleshooting](#troubleshooting)
-12. [Development notes](#development-notes)
+7. [Run folders](#run-folders)
+8. [Calibration reports](#calibration-reports)
+9. [How each workflow works](#how-each-workflow-works)
+10. [Input and output files](#input-and-output-files)
+11. [Units and conventions](#units-and-conventions)
+12. [Converting legacy configs](#converting-legacy-configs)
+13. [Troubleshooting](#troubleshooting)
+14. [Development notes](#development-notes)
 
 ---
 
@@ -52,8 +54,8 @@ The geospatial packages (GDAL, rasterio, geopandas) are painful to install with 
 ```bat
 conda create -n q2dpy python=3.12
 conda activate q2dpy
-conda install -c conda-forge numpy pandas "scipy>=1.11" h5py shapely geopandas rasterio gdal matplotlib requests nbformat plotly jupyterlab
-pip install pywin32 sambo itables
+conda install -c conda-forge numpy pandas "scipy>=1.11" h5py shapely geopandas rasterio gdal matplotlib requests
+pip install pywin32 sambo
 ```
 
 Or use an `environment.yml`:
@@ -74,14 +76,10 @@ dependencies:
   - gdal
   - matplotlib
   - requests
-  - nbformat
-  - plotly
-  - jupyterlab
   - pip
   - pip:
       - pywin32
       - sambo
-      - itables
 ```
 
 ```bat
@@ -96,7 +94,7 @@ Only if you already have working wheels for GDAL and rasterio:
 ```bat
 python -m venv .venv
 .venv\Scripts\activate
-pip install numpy pandas "scipy>=1.11" h5py shapely geopandas rasterio matplotlib requests nbformat plotly jupyterlab pywin32 sambo itables
+pip install numpy pandas "scipy>=1.11" h5py shapely geopandas rasterio matplotlib requests pywin32 sambo
 pip install GDAL    # needs a wheel matching your Python and GDAL install
 ```
 
@@ -105,18 +103,19 @@ pip install GDAL    # needs a wheel matching your Python and GDAL install
 | Package | Used for |
 |---|---|
 | `pywin32` | COM link to HEC-RAS (`win32com.client`) |
-| `h5py` | Reading and editing HEC-RAS HDF files (results, land cover, geometry) |
+| `h5py` | Reading and editing HEC-RAS HDF files (results, land cover, geometry); reading plan metadata for reports |
 | `numpy`, `pandas`, `scipy` | Data handling and Nelder-Mead optimization |
 | `sambo` | SCE-UA optimizer (optional algorithm) |
 | `geopandas`, `shapely`, `rasterio`, `gdal` | Mesh cell lookup and inundation shapefile export |
 | `requests` | AQUARIUS discharge download |
-| `nbformat`, `plotly`, `itables`, `jupyterlab` | Building and viewing the calibration report notebook |
-| `matplotlib` | Trend-line and statistics plots |
+| `matplotlib` | Report figures and trend-line plots |
+
+The calibration report is a self-contained HTML page built with matplotlib and pandas. It no longer needs Jupyter, `nbformat`, `plotly` or `itables`.
 
 ### Check the install
 
 ```bat
-python -c "import numpy, pandas, scipy, h5py, geopandas, rasterio, shapely, sambo, win32com.client; from osgeo import gdal; print('imports ok')"
+python -c "import numpy, pandas, scipy, h5py, geopandas, rasterio, shapely, sambo, matplotlib, win32com.client; from osgeo import gdal; print('imports ok')"
 python -c "import tomllib, scipy; print('tomllib ok, scipy', scipy.__version__)"
 ```
 
@@ -138,30 +137,37 @@ Make sure Python and HEC-RAS have the same bitness. A 32-bit Python cannot attac
 
 ## Project layout
 
-Adjust folder names to match your repository.
-
 ```
-Q2Dpy/
-  q2dpy/                  code
+Q2Dpy_v2.0/
+  q2dpy/                  code (run everything from this folder)
     main.py               entry point and workflow selection
-    config.py             loads one site TOML into module-level names
+    config.py             loads one site TOML, creates run folders, validates settings
     calibration.py        observation loading, objective function, optimizers, simplex, early stopping
     rating_curve.py       rating-curve generation and single-event runs
     grid.py               maps survey points to 2D mesh cells
     csv_log.py            helpers that append rows to the result CSVs
     units.py              unit conversions (cfs, m3/s, ft, m)
     model.py              HecRas class: edits RAS files, runs the plan, reads results
+    openRAS.py            HEC-RAS launch helper
     rasfileparser.py      reads and edits RAS flow (.u##) and plan (.p##) text files
     objectivefun.py       RMSE / MAE
     n_adjuster.py         discharge-dependent Manning's n trend functions
     shape_export.py       inundation shapefile and GeoJSON export
-    reporting.py          builds the calibration report notebooks
     aquarius.py           current discharge from AQUARIUS (optional)
     plot_trend.py         fits and plots Q vs n trend lines
     stats.py              statistics for indirect-discharge results
-  configs/                one TOML per site / run configuration
-  legacy/                 legacy config.toml
-    py_to_toml.py         converts legacy config.py files to TOML
+    reporting/            calibration report package
+      __init__.py         exports make_report
+      __main__.py         command line entry: python -m reporting <output folder>
+      builder.py          report classes (observed / indirect) and HTML assembly
+      data.py             loading run files and the analysis (best run, tolerance, residuals)
+      plots.py            matplotlib figures
+      run_report.py       optional script: edit a path and build a report
+  configs/
+    template.toml         example site config
+    legacy/               older configs and the legacy converter
+  test_data/              example HEC-RAS project for smoke tests
+  reporting/              generated reports, one folder per run (created on first report)
 ```
 
 ---
@@ -175,9 +181,9 @@ Expected data folder:
 ```
 <site directory>/
   RAS_files/              HEC-RAS project (.prj, .g##, .u##, .p##, .hdf, Land Classification\)
-  GIS/                    2D mesh shapefile, terrain raster, GeoJSONs\ (created on export)
-  Input/                  observation CSV, Q list, trend line CSV
-  Output/                 created automatically; results are written here
+  GIS/                    2D mesh shapefile, terrain raster
+  Input/                  observation CSV, Q list, trend line CSV; per-run snapshot folders are added here
+  Output/                 created automatically; one subfolder per run
 ```
 
 Checklist before the first run:
@@ -193,15 +199,15 @@ Checklist before the first run:
 
 ## Configuration reference
 
-Each site or run is one TOML file in `configs/`. To select it, edit this line at the top of `config.py`:
+Each site or run is one TOML file in `configs/`. To select it, edit this line at the top of `q2dpy/config.py`:
 
 ```python
 CONFIG_NAME = "template.toml"
 ```
 
-The loader puts every key from the top level and from the sections `[mode]`, `[calibration]`, `[options]`, `[ratecurve]`, `[sim_event]` and `[labels]` into the `config` module, so the rest of the code reads `config.<key>`. Paths are built from the `directory` and the file names in the TOML. Single-quoted TOML strings are literal, so Windows backslashes and spaces are safe. Keys in `[paths]`, `[ras]`, `[inputs]` and `[outputs]` are **not** copied directly; `config.py` uses them to build the derived paths.
+The loader puts every key from the top level and from the sections `[mode]`, `[calibration]`, `[options]`, `[ratecurve]`, `[sim_event]` and `[labels]` into the `config` module, so the rest of the code reads `config.<key>`. Paths are built from the `directory` and the file names in the TOML. Single-quoted TOML strings are literal, so Windows backslashes and spaces are safe. Keys in `[paths]`, `[ras]`, `[inputs]` and `[outputs]` are **not** copied directly; `config.py` uses them to build the derived paths. The `[report]` section is read by the reporting package from the run's saved copy of the TOML, not by `config.py`.
 
-Optional keys have defaults defined in `config.py` (`_DEFAULTS`), so older configs that lack them still load. Currently `early_stop` defaults to `false` and `early_stop_tol` to `None`.
+Optional keys have defaults in `reporting/data.py` or are checked in `config.validate()`, so older configs that lack them still load. `early_stop` defaults to off, and `[report]` can be left out entirely.
 
 ### Top level
 
@@ -235,7 +241,7 @@ Optional keys have defaults defined in `config.py` (`_DEFAULTS`), so older confi
 | `Q_params`, `Q_params_cfs` | Name of the discharge parameter in the log, and the starting / fixed discharge in cfs |
 | `bounds`, `i0_guess` | Lower/upper bound and initial-simplex range per parameter |
 
-**Parameter order for `bounds` and `i0_guess`:** friction slopes (if used), then Manning's n regions (then the structure n if independent), then discharge last for `cal_indirect`. The number of rows must equal the number of calibrated parameters.
+**Parameter order for `bounds` and `i0_guess`:** friction slopes (if used), then Manning's n regions (then the structure n if independent), then discharge last for `cal_indirect`. The number of rows must equal the number of calibrated parameters. The report uses the same order to attach bounds to each parameter, so a wrong count means no bounds in the report.
 
 ### `[options]`
 
@@ -253,7 +259,7 @@ Optional keys have defaults defined in `config.py` (`_DEFAULTS`), so older confi
 | `[paths]` | `directory`, the site root. `RAS_files`, `GIS`, `Input`, `Output` are derived from it |
 | `[ras]` | `prj` (project name), `geom`, `flow`, `plan` (file extensions such as `g03`, `u04`, `p03`), `landcover` (path relative to `RAS_files`) |
 | `[inputs]` | `grid_filename` and `terrain_raster` (in `GIS/`); `wse_filename`, `trendline`, `q_list` (in `Input/`) |
-| `[outputs]` | `simplex_filename`, `iterations_filename`, `wse_prof_filename`, `rating_curve_filename`, `batch_filename` (in `Output/`) |
+| `[outputs]` | `simplex_filename`, `iterations_filename`, `wse_prof_filename`, `rating_curve_filename`, `batch_filename` (written inside the run's Output subfolder) |
 
 ### `[ratecurve]`
 
@@ -269,32 +275,118 @@ Optional keys have defaults defined in `config.py` (`_DEFAULTS`), so older confi
 
 `hydrograph_ramp`, `change_sim_time`, `sim_time_hr`, `set_datetime`, `start_date`, `start_time`, `end_date`, `end_time`, `computation_interval`. These control the hydrograph written into the flow file and the simulation window in the plan file.
 
+### `[report]`
+
+| Key | Meaning |
+|---|---|
+| `report_tol_m` | Acceptance tolerance in meters. A run counts as acceptable if its objective is within this distance of the best run. If the section is missing, the report uses 10% of the best objective and says so in its summary |
+
 ### `[labels]`
 
 `perimeter` (2D flow area name), `us_bc`, `ds_bc` (boundary condition names). These must match the names inside the HEC-RAS geometry HDF files.
 
 ### Calculated values
 
-These are computed by `config.py`: `Q_params_vals`, `min_q`, `max_q` (m3/s from the cfs values, using the constant in `units.py`), `friction_slope` (upstream and downstream combined), and every `*_filename` path.
+These are computed by `config.py`: `Q_params_vals`, `min_q`, `max_q` (m3/s from the cfs values, using the constant in `units.py`), `friction_slope` (upstream and downstream combined), the run folder paths, and every output file path.
 
 ---
 
 ## Running Q2Dpy
 
 1. Activate the environment: `conda activate q2dpy`
-2. Set `CONFIG_NAME` in `config.py` to the TOML you want.
+2. Set `CONFIG_NAME` in `q2dpy/config.py` to the TOML you want.
 3. Close HEC-RAS if it is open.
-4. From the code folder:
+4. From the `q2dpy` code folder:
 
 ```bat
 python main.py
 ```
 
-On start-up, `config.validate()` checks that the project files exist, that a run mode is selected, that lists have matching lengths, that `early_stop_tol` is set when `early_stop` is on, and a few option dependencies (for example `export_geojsons` needs `export_shapefile`). The TOML is also copied into `Output/`, so every result set records the settings that produced it.
+On start-up, `config.validate()` checks that the project files exist, that a run mode is selected, that lists have matching lengths, that `early_stop_tol` is set when `early_stop` is on, and a few option dependencies (for example `export_geojsons` needs `export_shapefile`). Then `config.start_run()` creates the run folders, and `config.snapshot_inputs()` copies the config and input files into the run's Input folder, so every result set records the settings and data that produced it.
 
 HEC-RAS opens on screen for each model run, then closes. Do not use the computer's HEC-RAS windows while a calibration is running.
 
-**Smoke test:** set `max_runs = 5` on a copy of your config and run it. Check `Output/model_iterations.csv` for the rows before starting a full run (about 300 model runs is typical).
+**Smoke test:** set `max_runs = 5` on a copy of your config and run it. Check `Output/<run>/model_iterations.csv` for the rows before starting a full run (about 300 model runs is typical).
+
+---
+
+## Run folders
+
+Each run creates a pair of folders with the same name, `<YYYYMMDD>_<mode>`, for example `20261029_cal_observed`. If the name already exists, `_1`, `_2` and so on are appended, so nothing is overwritten.
+
+| Mode part of the name | When |
+|---|---|
+| `cal_observed`, `cal_indirect`, `gen_ratecurv`, `sim_event`, `cal_EG_slope` | The selected `[mode]` switch |
+| `_EG` suffix | `cal_EG_slope` combined with another calibration mode |
+| `_batch` suffix | Calibration with `batch_process = true` |
+
+```
+<site directory>/
+  Input/
+    batch_channel_cal.csv       the working input files
+    20261029_cal_observed/      snapshot: the config TOML and every file that was in Input/ at the start
+  Output/
+    20261029_cal_observed/      model_iterations.csv, wse_profiles_output.csv, GeoJSONs\, ...
+```
+
+The snapshot is taken after the cell-index step, so the copied observation CSV is the one the run actually used. Reports read the snapshot to find the settings, which is why a report can be built later without the original config.
+
+---
+
+## Calibration reports
+
+When a `cal_observed`, `cal_indirect` or `cal_EG_slope` run finishes (and `batch_process` is off), `main.py` builds a report automatically. If the report fails, the results are still saved and the console prints the command to rerun it.
+
+Reports are written to `reporting/<project>_<run name>` in the repository root. Rerunning for the same run creates `_1`, `_2` and so on.
+
+| Item | Contents |
+|---|---|
+| `report.html` | One self-contained page with the figures embedded |
+| `figures/` | PNG files for each plot |
+| `tables/` | CSV files: parameter ranges, acceptable runs, ten best runs, residuals, worst points |
+
+### What the report shows
+
+- **Summary:** run, project, mode, algorithm, objective function, number of model runs, best objective and iteration, tolerance and where it came from, number of acceptable runs, and bias, MAE and maximum error at the observation points.
+- **Stopping:** whether early stopping ended the run, and the final `Obj_Std`.
+- **Warnings:** a best value within 5% of a bound (the true value may lie outside the search range) and fewer than five acceptable runs (the ranges are a lower bound).
+- **Calibrated parameters:** best value, acceptable range and bounds for each parameter that changed during the run.
+- **Figures:** convergence, parameters vs iteration, objective vs parameter, water surface profile, and residuals along the reach.
+- **Indirect runs only:** a discharge result table (best, acceptable low and high, in m3/s and cfs) and a discharge-vs-roughness plot.
+- **Context:** HEC-RAS plan metadata and the calibration settings.
+
+### Acceptable range
+
+A run is acceptable if its objective is within the tolerance of the best run. The acceptable range of a parameter is the minimum and maximum of that parameter among the acceptable runs. It only reflects the values the optimizer tried, so treat it as a lower bound on the true uncertainty. For `cal_observed` it also assumes the fixed discharge is correct.
+
+Set the tolerance in `[report] report_tol_m` based on the accuracy of your surveyed marks, or override it for one report with `--tol`.
+
+### Running a report without the model
+
+```bat
+cd q2dpy
+conda activate q2dpy
+python -m reporting ..\test_data\Output\20261029_cal_observed
+python -m reporting <output folder> --tol 0.05
+```
+
+| Option | Meaning |
+|---|---|
+| `--tol` | Tolerance in meters for this report (overrides `report_tol_m`) |
+| `--input-dir` | Snapshot folder, if it is not the sibling `Input/<run name>` |
+| `--config` | TOML name inside the snapshot folder, if there are several |
+| `--report-root` | Folder that receives report folders (default `reporting/` in the repository root) |
+
+From Python:
+
+```python
+from reporting import make_report
+make_report(r"C:\...\Output\20261029_cal_observed", tol_m=0.05).run()
+```
+
+`reporting/run_report.py` is a script version: edit `OUTPUT_DIR` and `TOL_M` at the top and run it as a module from the `q2dpy` folder with `python -m reporting.run_report`. Running the file directly will fail on the import because the package folder, not `q2dpy`, ends up on the search path.
+
+A report needs `model_iterations.csv` and `wse_profiles_output.csv` in the Output run folder and the config TOML in the matching Input run folder. It does not import `config.py`.
 
 ---
 
@@ -302,7 +394,7 @@ HEC-RAS opens on screen for each model run, then closes. Do not use the computer
 
 ### Common loop (calibration)
 
-1. `main.py` reads the config, loads the observations (`load_obs_df`), finds mesh cells if requested, and applies one-time edits (simulation date/time, friction slopes, starting discharge).
+1. `main.py` validates the config, creates the run folders, optionally finds mesh cells, takes the input snapshot, loads the observations (`load_obs_df`), and applies one-time edits (simulation date/time, friction slopes, starting discharge). It then changes the working directory to the run's Output folder.
 2. `create_i0_simplex` builds the starting Nelder-Mead simplex: all lower bounds, random points within each range, and all upper bounds.
 3. `optimize_model` assembles the starting vector from the config and hands `calc_obj_function` to SciPy's Nelder-Mead or to `sambo`'s SCE-UA.
 4. Each time the optimizer asks for an objective value, `calc_obj_function`:
@@ -312,7 +404,7 @@ HEC-RAS opens on screen for each model run, then closes. Do not use the computer
    - compares modeled and observed WSE at the survey cells (`score_model`) and returns RMSE or MAE;
    - records the standard deviation of the recent objective values (see Early stopping);
    - appends the run to `model_iterations.csv` (`log_iteration`) and adds that run's WSE profile to `wse_profiles_output.csv` (`log_wse_profile`).
-5. When it finishes, a Jupyter report notebook is written to `Output/`.
+5. When it finishes, the report is built (see [Calibration reports](#calibration-reports)).
 
 ### Early stopping
 
@@ -322,11 +414,11 @@ Nelder-Mead can settle on a plateau where the RMSE barely changes, then keep dri
 - After every model run it computes the standard deviation of that window and writes it to the `Obj_Std` column of `model_iterations.csv`. This happens whether or not early stopping is on, so you can pick a tolerance from a normal run. The column is empty until the window fills.
 - If `early_stop = true`, the optimizer callback stops the run at the end of the iteration in which the standard deviation falls below `early_stop_tol`. SciPy returns normally with its best result; for SCE-UA the same callback is passed to `sambo`.
 - Each call to `optimize_model` creates a new tracker, so every row of a batch calibration starts fresh.
-- The model files on disk hold the last trial parameters, not necessarily the best. The best run is the row with the lowest `Obj_Func_Value` in `model_iterations.csv`.
+- The model files on disk hold the last trial parameters, not necessarily the best. The best run is the row with the lowest `Obj_Func_Value` in `model_iterations.csv`, and the report identifies it.
 
-**Choosing the tolerance:** run once with `early_stop = false`, plot `Obj_Std` and `Obj_Func_Value` against `iteration`, and set `early_stop_tol` just above the standard deviation on the plateau and below the values during real convergence. 1e-4 has worked well as a starting point.
+**Choosing the tolerance:** run once with `early_stop = false`, look at the convergence figure in the report (or plot `Obj_Std` and `Obj_Func_Value` against `iteration`), and set `early_stop_tol` just above the standard deviation on the plateau and below the values during real convergence. 1e-4 has worked well as a starting point.
 
-Early stopping accepts the first flat region the optimizer finds, which depends on the starting simplex. If different starts give different n values at the same RMSE, the problem is not well constrained (equifinality); tighter `bounds`, a better `i0_guess` or more observations will help more than a different tolerance.
+Early stopping accepts the first flat region the optimizer finds, which depends on the starting simplex. If different starts give different n values at the same RMSE, the problem is not well constrained (equifinality); tighter `bounds`, a better `i0_guess` or more observations will help more than a different tolerance. The "Objective vs parameter" figure and the acceptable ranges in the report show this directly.
 
 ### `cal_observed`
 
@@ -334,7 +426,7 @@ The discharge is fixed (`Q_params_cfs`). The optimizer varies Manning's n (and f
 
 ### `cal_indirect`
 
-Discharge is one of the parameters, placed last. Use it when only high-water marks are known. `stats.py` summarizes the final simplex (mean Q, standard deviation, confidence intervals).
+Discharge is one of the parameters, placed last. Use it when only high-water marks are known. The report gives the best discharge and the range among acceptable runs. `stats.py` summarizes the final simplex (mean Q, standard deviation, confidence intervals).
 
 ### Batch calibration
 
@@ -352,7 +444,7 @@ To build the n-versus-Q trend, put calibrated results in `Input/trendline.csv` a
 
 ### Inundation export
 
-`shape_export.export_shapefile` joins each cell's final WSE to the mesh shapefile, rasterizes it on the terrain raster grid, subtracts the terrain, keeps depths above 0.01 m, vectorizes the result, drops polygons of 3 m2 or less, and writes `GIS/inundation.shp`. `saveas_geojson` reprojects it to EPSG:4326 and names the file by stage in feet.
+`shape_export.export_shapefile` joins each cell's final WSE to the mesh shapefile, rasterizes it on the terrain raster grid, subtracts the terrain, keeps depths above 0.01 m, vectorizes the result, drops polygons of 3 m2 or less, and writes the inundation shapefile into the run's Output folder. `saveas_geojson` reprojects it to EPSG:4326 and names the file by stage in feet.
 
 ---
 
@@ -365,7 +457,7 @@ To build the n-versus-Q trend, put calibrated results in `Input/trendline.csv` a
 | `ID` | Unique id per point (normal calibration; also `find_cell_index`) |
 | `Easting`, `Northing` | `find_cell_index` (in the same CRS as the mesh shapefile) |
 | `Cell_Index` | All modes. Written by `find_cell_index` or supplied by you |
-| `Channel_Distance` | Normal calibration (used for profile plots) |
+| `Channel_Distance` | Normal calibration (used for profile plots and the report) |
 | `Elev_m` | Calibration: observed water surface elevation (m, NAVD88) |
 | `Q(cfs)` | Batch mode: discharge for that row |
 
@@ -378,19 +470,23 @@ To build the n-versus-Q trend, put calibrated results in `Input/trendline.csv` a
 - `GIS/<terrain_raster>`: terrain GeoTIFF used as the template for inundation export
 - `GIS/<grid_filename>`: the 2D mesh cell shapefile
 
-### Outputs (`Output/`)
+### Outputs (`Output/<run name>/`)
 
 | File | Contents |
 |---|---|
-| `<config name>.toml` | Copy of the config used |
 | `model_iterations.csv` | One row per model run: parameter values, discharge, friction slopes, `iteration`, `Obj_Func_Value`, `Obj_Std` (std of the last two simplexes' objective values) |
 | `wse_profiles_output.csv` | Observation points with a column `I<n>` of modeled WSE for each iteration |
 | `batch_results.csv` | Final iteration of each batch row |
 | `rating_curve.csv` | Stage-discharge results |
-| `HECRAS_Calibration_Report.ipynb`, `HECRAS_Indirect_Report.ipynb` | Report notebooks with tables and plots |
-| `GIS/inundation.shp`, `GIS/GeoJSONs/*.geojson` | Inundation extent exports |
+| `inundation.shp`, `GeoJSONs/*.geojson` | Inundation extent exports |
 
-If you rerun in an Output folder that already has a `model_iterations.csv` from before the `Obj_Std` column existed, the older rows will have it empty. Use a fresh Output folder for comparison runs.
+### Run snapshot (`Input/<run name>/`)
+
+The config TOML and a copy of every file that was in `Input/` when the run started.
+
+### Reports (`reporting/<project>_<run name>/`)
+
+`report.html`, `figures/*.png`, `tables/*.csv`. See [Calibration reports](#calibration-reports).
 
 ---
 
@@ -400,13 +496,14 @@ If you rerun in an Output folder that already has a `model_iterations.csv` from 
 - Config inputs and some output columns use cfs and feet (`Q_params_cfs`, `min_cfs`, `max_cfs`, `Q(cfs)`, `stage(ft)`).
 - All conversions go through `units.py` (`cfs_to_cms`, `cms_to_cfs`, `m_to_ft`, `ft_to_m`). The constants used are 1 cfs = 0.02832 m3/s and 1 ft = 0.3048 m. `config.py` takes its cfs-to-m3/s factor from `units.py`.
 - `aquarius.py` still hard-codes the rounded factor `0.02832` for the AQUARIUS conversion.
+- Report tolerances and fit statistics are in meters.
 - Manning's n calibration region names are stored as bytes in the HDF files. `string_to_binary` and `binary_to_string` in `model.py` convert between the two.
 
 ---
 
 ## Converting legacy configs
 
-Older runs used a Python `config.py`. `legacy/py_to_toml.py` converts a tree of those files to the TOML format:
+Older runs used a Python `config.py`. `py_to_toml.py` (in `configs/legacy`) converts a tree of those files to the TOML format:
 
 ```
 legacy/<site folder>/<any config>.py   ->   configs/<site folder, lowercase>_<file name>.toml
@@ -416,7 +513,7 @@ Set `OLD_ROOT` and `OUT_DIR` at the top of the script and run it. Notes:
 
 - It **executes** each old file, so only run it on code you trust.
 - Fields missing from an old config are written as `""` with a `# MISSING in source config` comment, because TOML has no null. Fix these by hand. An empty string is falsy, so a missing flag behaves as `false`, but a missing number will fail when it is used.
-- Converted files do not include `early_stop` or `early_stop_tol`. Add them to `[calibration]` by hand if you want early stopping; without them it stays off.
+- Converted files do not include `early_stop`, `early_stop_tol` or `[report]`. Add them by hand if you want early stopping or a specific report tolerance; without them early stopping stays off and the report uses its 10% fallback.
 - Spaces in folder names become underscores in the output file name.
 - It prints a report of the missing fields for every file.
 
@@ -440,13 +537,13 @@ Confirm `hec_version` matches the installed ProgID exactly, that Python and HEC-
 `config.py` looks for `CONFIG_NAME` in the `configs` folder next to the code folder. Check the spelling and the folder location.
 
 **`NameError` for a config key**
-The key is missing from the TOML, or it is in a section that is not flattened (`[paths]`, `[ras]`, `[inputs]` and `[outputs]` are not). Compare your file with a working one, such as the test config.
+The key is missing from the TOML, or it is in a section that is not flattened (`[paths]`, `[ras]`, `[inputs]` and `[outputs]` are not). Compare your file with `configs/template.toml`.
 
 **`Config errors: early_stop = true requires early_stop_tol > 0`**
 Add `early_stop_tol` to `[calibration]`.
 
 **Early stopping never triggers, or triggers too early**
-Open `model_iterations.csv` and look at the `Obj_Std` column. If it never drops below `early_stop_tol`, the tolerance is too strict for that site. If it drops below the tolerance during the initial convergence, it is too loose. Remember `Obj_Std` is empty until the window of 2 x (n + 1) runs is full, and the run only stops at the end of an iteration.
+Open `model_iterations.csv` (or the convergence figure in the report) and look at `Obj_Std`. If it never drops below `early_stop_tol`, the tolerance is too strict for that site. If it drops below the tolerance during the initial convergence, it is too loose. Remember `Obj_Std` is empty until the window of 2 x (n + 1) runs is full, and the run only stops at the end of an iteration.
 
 **`TypeError` / odd behavior with the optimizer callback**
 Early stopping needs SciPy 1.11 or newer. Check with `python -c "import scipy; print(scipy.__version__)"`.
@@ -457,8 +554,23 @@ The observation CSV is missing a column the current mode needs. Run with `find_c
 **Results read as stale or empty after a run**
 The plan HDF takes a moment to finish writing. `run_and_read_wse` waits 4 seconds after the run. Do not remove that wait unless you have tested the replacement on your machine.
 
-**`ModuleNotFoundError` / `ImportError`**
-Make sure the environment is active and all modules are in the code folder. If you have turned the folder into a package, imports between modules need to be relative (`from . import config`) and the script must be started with `python -m <package>.main`.
+**`Report failed (...)` at the end of a run**
+The results are already saved. Fix the cause shown in the message and rerun with `python -m reporting <output folder>` from the `q2dpy` folder.
+
+**`Report not created: Input snapshot folder not found`**
+The report looks for `Input/<run name>` next to the `Output` folder. Pass `--input-dir` if you moved it.
+
+**`Several .toml files in ...`**
+More than one TOML is in the snapshot folder. Pass `--config <name>.toml`.
+
+**`NotImplementedError` from a report**
+Reports exist for calibration runs only (`cal_observed`, `cal_indirect`, `cal_EG_slope`), and not for batch calibrations.
+
+**`ModuleNotFoundError: reporting` when running `run_report.py`**
+Run it as a module from the `q2dpy` folder (`python -m reporting.run_report`), or move it up next to `main.py`.
+
+**`ModuleNotFoundError` / `ImportError` (other modules)**
+Run commands from the `q2dpy` folder with the environment active. Modules inside `reporting/` import each other with relative imports (`from . import data`), and the package imports top-level modules such as `units` from the `q2dpy` folder.
 
 ---
 
@@ -466,9 +578,11 @@ Make sure the environment is active and all modules are in the code folder. If y
 
 - **Credentials.** `aquarius.py` currently keeps the server name and login in the source file. Move the credentials to environment variables or a local file that is not committed, and do not push them to a shared repository.
 - **Globals.** Observation data are passed into the calibration functions as arguments (`obs_df`, `batch_row`). Do not reintroduce module-level DataFrames.
-- **Adding a config key.** Add it to the TOML (in the section that fits), then read it as `config.<key>`. Keys must be unique across sections because the sections are flattened into one namespace. If you add a new section that holds settings, add its name to `_FLAT_SECTIONS` in `config.py`. If the key should be optional, add a default to `_DEFAULTS` in `config.py` so older TOMLs still load, and add a check to `validate()` if it has dependencies.
+- **Adding a config key.** Add it to the TOML (in the section that fits), then read it as `config.<key>`. Keys must be unique across sections because the sections are flattened into one namespace. If you add a new section that holds settings, add its name to `_FLAT_SECTIONS` in `config.py`, and to `FLAT_SECTIONS` in `reporting/data.py` if reports need it. Add a check to `validate()` if the key has dependencies.
+- **Run folders.** All output paths come from `config._build_output_paths`. Code should read `config.output_directory` and the `*_filename` names after `start_run()` has been called, never build paths from the Output root.
 - **Model handle.** Use `HecRas.from_config()` to create a model handle. It only stores file paths, so creating one per run is cheap.
 - **Objective function structure.** `calc_obj_function` in `calibration.py` is a coordinator over small functions: `apply_trial_parameters`, `run_and_read_wse`, `collect_param_row`, `score_model`, `log_iteration` and `log_wse_profile`. Change behavior in the small function, not in the coordinator.
+- **Reporting structure.** `data.py` loads files and does the analysis with no plotting and no dependency on `config.py`; `plots.py` only draws; `builder.py` wires them together. To add a report type, subclass `CalibrationReport`, override the `extra_plots` and `extra_summary` hooks, and select it in `make_report`.
 - **Regression checks.** Before and after any refactor, run a short calibration (`max_runs = 5`) on the test project with `early_stop = false` and compare `model_iterations.csv`. Differences in the fourth significant figure are expected only when unit constants change.
-- **Deprecated.** `raster_processing.py` is superseded by `shape_export.py`. `FlowFileParser.update_unsteady_flow` and `PlanFileParser.update_simulation_date` are marked deprecated in their docstrings.
-- **Known loose ends.** `generate_ratingcurve` and `sim_event` assume the first observation point is the gauge cell. Batch mode is implemented for `cal_observed` only. `HydraulicModel` is an empty base class.
+- **Deprecated.** `raster_processing.py` is superseded by `shape_export.py`. `FlowFileParser.update_unsteady_flow` and `PlanFileParser.update_simulation_date` are marked deprecated in their docstrings. The old notebook reports (`HECRAS_Calibration_Report.ipynb`, `HECRAS_Indirect_Report.ipynb`) were replaced by the `reporting` package.
+- **Known loose ends.** `generate_ratingcurve` and `sim_event` assume the first observation point is the gauge cell. Batch mode is implemented for `cal_observed` only, and has no report. `HydraulicModel` is an empty base class.

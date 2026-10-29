@@ -6,20 +6,18 @@ the config TOML), so it can run at the end of main or later on any existing data
     from reporting import make_report
     make_report(r"C:\...\Output\20261029_cal_observed").run()
 
-    python reporting.py C:\...\Output\20261029_cal_observed --tol 0.03
+    python -m reporting C::\...\Output\20261029_cal_observed --tol 0.03
 """
-import argparse
 import base64
 import html
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-import data as rd
-import plots as rp
-from ..units import cms_to_cfs
+from . import data as rd
+from . import plots as rp
+from units import cms_to_cfs
 
 DEFAULT_REPORT_ROOT = Path(__file__).resolve().parent.parent.parent / "reporting"
 

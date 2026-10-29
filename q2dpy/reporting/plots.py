@@ -7,7 +7,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from data import best_so_far, profile_columns
+from .data import best_so_far, profile_columns
 
 DPI = 150
 
