@@ -3,27 +3,6 @@
   <component name="CsvFileAttributes">
     <option name="attributeMap">
       <map>
-        <entry key="\reporting\elk_cr_agusta_test_sub\tables\acceptable_runs.csv">
-          <value>
-            <Attribute>
-              <option name="separator" value="," />
-            </Attribute>
-          </value>
-        </entry>
-        <entry key="\reporting\elk_cr_agusta_test_sub\tables\best_runs.csv">
-          <value>
-            <Attribute>
-              <option name="separator" value="," />
-            </Attribute>
-          </value>
-        </entry>
-        <entry key="\reporting\elk_cr_agusta_test_sub\tables\parameter_ranges.csv">
-          <value>
-            <Attribute>
-              <option name="separator" value="," />
-            </Attribute>
-          </value>
-        </entry>
         <entry key="\test_data\Input\batch_channel_cal.csv">
           <value>
             <Attribute>

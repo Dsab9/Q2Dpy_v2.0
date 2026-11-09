@@ -282,9 +282,9 @@ def validate():
             errors.append(f"bounds has {len(bounds)} row(s) but this mode calibrates {len(vec)} "
                           "parameter(s). Order: friction slopes, Manning's n regions, "
                           "structure n (if independent), discharge (cal_indirect).")
-        for i, b in enumerate(bounds):
-            if len(b) != 2 or not b[0] < b[1]:
-                errors.append(f"bounds row {i + 1} must be (low, high) with low < high: {b}")
+        for i, row in enumerate(bounds):
+            if len(row) != 2 or not row[0] < row[1]:
+                errors.append(f"bounds row {i + 1} must be (low, high) with low < high: {row}")
         for i, g in enumerate(i0_guess):
             if len(g) != 2 or g[0] > g[1]:
                 errors.append(f"i0_guess row {i + 1} must be (low, high) with low <= high: {g}")
@@ -312,7 +312,9 @@ def validate():
             if not isinstance(q_divisions, int) or q_divisions < 1:
                 errors.append("q_divisions must be a whole number of at least 1.")
     if adjust_n_rating and (gen_ratecurv is True):
-        lens = {len(a), len(b), len(n_regions), len(function_type), len(max_n), len(min_n)}
+        rc_a, rc_b = _get("a"), _get("b")
+        lens = {len(rc_a), len(rc_b), len(n_regions), len(function_type),
+                len(max_n), len(min_n)}
         if len(lens) != 1:
             errors.append("a, b, n_regions, function_type, max_n and min_n must be the same length.")
         if any(lo > hi for lo, hi in zip(min_n, max_n)):

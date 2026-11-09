@@ -7,10 +7,10 @@ gauge_el_NAVD88m = 1348.689
 
 # ---------------------------------------------------------------- run mode
 [mode]
-cal_observed = true                # calibrates manning's n regions given a discharge and water surface elevation(s)
+cal_observed = false                # calibrates manning's n regions given a discharge and water surface elevation(s)
 cal_indirect = false               # calibrates manning's n regions and discharge simultaniously given water surface elevation(s)
 cal_EG_slope = false               # calibrates upstream and downstream energy gradient, may be used by itself or with other modes
-gen_ratecurv = false               # runs HEC-RAS given input discharges to generating a gage rating
+gen_ratecurv = true               # runs HEC-RAS given input discharges to generating a gage rating
 sim_event    = false               # initiates HEC-RAS given starting parameters
 
 # ------------------------------------------------------------- calibration
@@ -25,7 +25,7 @@ early_stop     = true     # ends optimization function given tolerance met
 early_stop_tol = 1e-4     # std of the last 2(n+1) objective values; same units as the objective (m for RMSE)
 
 structures             = false     # assign channel n to structures in cal_observed (currently assigns channel n to structure)
-independent_structures = false     # calibrate structures separately from channel; input to simplex same as Q (structures must be true)
+independent_structures = true     # calibrate structures separately from channel; input to simplex same as Q (structures must be true)
 
 set_friction_slope = false         # override friction slopes prior to initial run
 FS_params = ["us_fs", "ds_fs"]     # one or both for cal_EG_slope; us_fs must be first if both
@@ -87,7 +87,7 @@ adjust_n_rating = true             # adjust n by discharge using a, b and trend 
 n_regions       = ["us_channel", "ds_channel"]
 function_type   = ["log", "log"]   # linear, log, exp, power, hyper (x is metric)
 a     = [-0.00636011, -0.00636011]
-b     = [0.06013817, -0.06013817]
+b     = [0.06013817, 0.06013817]
 max_n = [0.14, 0.14]
 min_n = [0.025, 0.025]
 
