@@ -225,7 +225,7 @@ class HecRas(HydraulicModel):
     def _mann_count(line):
         """Number of station/n entries on a 'Conn BR: ... Mann=' line, or None if it can't be read."""
         try:
-            return int(line.split('=', 1)[1].split(',')[0])
+            return int(line.split('=', 1)[1].split(',')[1])
         except (IndexError, ValueError):
             return None
 
