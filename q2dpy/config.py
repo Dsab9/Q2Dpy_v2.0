@@ -40,6 +40,20 @@ for _sec in _FLAT_SECTIONS:
 globals().update(_flat)
 
 
+# ------------------------------------------------------------ structure n
+STRUCTURE_PARAM = "Structures"   # name Q2Dpy uses for the structure n; not a land-cover region
+# land-cover region whose n is copied to structures (older configs without the key use "Channel")
+channel_region = _flat.get("channel_region", "Channel")
+
+
+def structure_start_n():
+    """Starting structure n for independent_structures: the channel_region starting
+    value if it is calibrated, otherwise the first Man_n_vals entry."""
+    if channel_region in Man_n_params:
+        return Man_n_vals[list(Man_n_params).index(channel_region)]
+    return Man_n_vals[0]
+
+
 # -------------------------------------------------------- tuple-ify the lists
 bounds = [tuple(x) for x in bounds]
 i0_guess = [tuple(x) for x in i0_guess]
@@ -181,18 +195,41 @@ def _initial_vector():
             return list(friction_slope)
         vec = list(Man_n_vals)
         if independent_structures is True:
-            vec.append(Man_n_vals[0])
+            vec.append(structure_start_n())
         return vec
     if cal_indirect is True:
         vec = list(friction_slope) if cal_EG_slope is True else []
         vec.extend(Man_n_vals)
         if independent_structures is True:
-            vec.append(Man_n_vals[0])
+            vec.append(structure_start_n())
         vec.append(Q_params_vals[0])
         return vec
     if cal_EG_slope is True:
         return list(friction_slope)
     return None
+
+
+def _sim_window_hours():
+    """Length of the simulation window in hours and where it came from: the config
+    when set_datetime is on (it overwrites the plan), otherwise the plan file.
+    Returns (None, source) if it can't be read."""
+    if set_datetime is True:
+        source = "start/end date and time in [sim_event]"
+        try:
+            t0 = _ras_datetime(start_date, start_time)
+            t1 = _ras_datetime(end_date, end_time)
+        except (ValueError, TypeError):
+            return None, source
+    else:
+        source = plan_filename.name
+        try:
+            with open(plan_filename, "r", encoding="utf-8") as f:
+                line = next(ln for ln in f if ln.startswith("Simulation Date="))
+            d0, h0, d1, h1 = [x.strip() for x in line.split("=", 1)[1].split(",")[:4]]
+            t0, t1 = _ras_datetime(d0, h0), _ras_datetime(d1, h1)
+        except (OSError, StopIteration, ValueError, TypeError):
+            return None, source
+    return (t1 - t0).total_seconds() / 3600, source
 
 
 def _ras_datetime(date_str, time_str):
@@ -282,9 +319,9 @@ def validate():
             errors.append(f"bounds has {len(bounds)} row(s) but this mode calibrates {len(vec)} "
                           "parameter(s). Order: friction slopes, Manning's n regions, "
                           "structure n (if independent), discharge (cal_indirect).")
-        for i, b in enumerate(bounds):
-            if len(b) != 2 or not b[0] < b[1]:
-                errors.append(f"bounds row {i + 1} must be (low, high) with low < high: {b}")
+        for i, row in enumerate(bounds):
+            if len(row) != 2 or not row[0] < row[1]:
+                errors.append(f"bounds row {i + 1} must be (low, high) with low < high: {row}")
         for i, g in enumerate(i0_guess):
             if len(g) != 2 or g[0] > g[1]:
                 errors.append(f"i0_guess row {i + 1} must be (low, high) with low <= high: {g}")
@@ -301,8 +338,19 @@ def validate():
 
         if structures is False and independent_structures:
             errors.append("independent_structures requires structures = true.")
+        if STRUCTURE_PARAM in Man_n_params:
+            errors.append(f"Man_n_params: leave out '{STRUCTURE_PARAM}'. With independent_structures = true "
+                          "the structure n is added to the parameter vector automatically.")
+        if (structures is True and independent_structures is not True
+                and (cal_observed is True or cal_indirect is True)
+                and channel_region not in Man_n_params):
+            errors.append(f"structures = true copies the n of channel_region ('{channel_region}') to "
+                          f"structures, so Man_n_params must include it: {list(Man_n_params)}")
         if cal_indirect is True and Q_params_cfs <= 0:
             errors.append("Q_params_cfs must be greater than 0.")
+
+    if structures is True and (not isinstance(channel_region, str) or not channel_region):
+        errors.append('channel_region must be the name of a land-cover region, e.g. "Channel".')
 
     # ---- rating curve
     if gen_ratecurv is True:
@@ -312,7 +360,9 @@ def validate():
             if not isinstance(q_divisions, int) or q_divisions < 1:
                 errors.append("q_divisions must be a whole number of at least 1.")
     if adjust_n_rating and (gen_ratecurv is True):
-        lens = {len(a), len(b), len(n_regions), len(function_type), len(max_n), len(min_n)}
+        rc_a, rc_b = _get("a"), _get("b")
+        lens = {len(rc_a), len(rc_b), len(n_regions), len(function_type),
+                len(max_n), len(min_n)}
         if len(lens) != 1:
             errors.append("a, b, n_regions, function_type, max_n and min_n must be the same length.")
         if any(lo > hi for lo, hi in zip(min_n, max_n)):
@@ -320,6 +370,18 @@ def validate():
         bad = [f for f in function_type if f not in ("linear", "log", "exp", "power", "hyper")]
         if bad:
             errors.append(f"Unknown function_type value(s): {bad}")
+        has_struct = STRUCTURE_PARAM in n_regions
+        if has_struct and structures is not True:
+            warnings.append(f"n_regions includes '{STRUCTURE_PARAM}' but structures = false; "
+                            "that trend is ignored.")
+        elif has_struct and independent_structures is not True:
+            warnings.append(f"n_regions includes '{STRUCTURE_PARAM}' but independent_structures = false; "
+                            f"structures get the '{channel_region}' n instead.")
+        if (structures is True and not (has_struct and independent_structures is True)
+                and channel_region not in n_regions):
+            errors.append(f"structures = true without an independent '{STRUCTURE_PARAM}' trend copies the n "
+                          f"of channel_region ('{channel_region}'), so n_regions must include it: "
+                          f"{list(n_regions)}")
 
     # ---- single event / simulation window
     if sim_event is True or gen_ratecurv is True:
@@ -336,6 +398,17 @@ def validate():
                           "start_time/end_time like 03:00.")
     if change_sim_time is True and sim_time_hr < 1:
         errors.append("sim_time_hr must be at least 1.")
+    if change_sim_time is True and sim_time_hr >= 1:
+        window_hr, source = _sim_window_hours()
+        if window_hr is None:
+            warnings.append(f"change_sim_time: could not read the simulation window from {source}; "
+                            "make sure the plan covers sim_time_hr.")
+        elif sim_time_hr < window_hr:
+            errors.append(f"sim_time_hr ({sim_time_hr} hr) is shorter than the simulation window "
+                          f"({window_hr:g} hr, from {source}); the hydrograph would not cover the run.")
+        elif sim_time_hr > window_hr:
+            warnings.append(f"sim_time_hr ({sim_time_hr} hr) is longer than the simulation window "
+                            f"({window_hr:g} hr, from {source}); the end of the hydrograph is not used.")
 
     # ---- general
     if not str(hec_version).isdigit():
@@ -350,5 +423,4 @@ def validate():
         print(f"Config warning: {w}")
     if errors:
         raise SystemExit("Config errors:\n  - " + "\n  - ".join(errors))
-
 

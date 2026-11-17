@@ -161,15 +161,12 @@ class HecRas(HydraulicModel):
             # print(f"new n values: {new_n_vals}")
             print(f"updated n values: {new_params}")
 
-        with h5py.File(config.lchdf_filename, 'r+') as lchf:
+        with h5py.File(landcover_hdf, 'r+') as lchf:
             Man_tab = lchf["Variables"]
             Man_tab["ManningsN"] = just_nval
-            lchf.close()
 
-        with h5py.File(landcover_hdf, 'r') as lchdf:
-            Man_check = lchdf["Variables"][:]
-            Man_check = np.array(Man_check)
-            lchf.close()
+        with h5py.File(landcover_hdf, 'r') as lchf:
+            Man_check = np.array(lchf["Variables"][:])
         if not np.array_equal(Man_check, new_n_vals):
             raise ValueError('LandCover.hdf save was unsuccessful/corrupted')
 
@@ -178,11 +175,15 @@ class HecRas(HydraulicModel):
         for i in new_n_vals:
             land_class_list.append(i[0])
         if config.structures is True:
-            if b'Structures' in new_params and config.independent_structures is True:
-                br_n_val = new_params[b'Structures']
-
+            struct_key = config.STRUCTURE_PARAM.encode()
+            channel_key = config.channel_region.encode()
+            if struct_key in new_params and config.independent_structures is True:
+                br_n_val = new_params[struct_key]
+            elif channel_key in new_params:
+                br_n_val = new_params[channel_key]
             else:
-                br_n_val = new_params[b'Channel']
+                raise KeyError(f"structures = true, but no n was given for channel_region "
+                               f"'{config.channel_region}' or '{config.STRUCTURE_PARAM}'.")
 
             with h5py.File(geometry_hdf, 'r+') as rslt:
                 structure_n = rslt["Geometry/Structures/Mannings Data"]
@@ -193,26 +194,46 @@ class HecRas(HydraulicModel):
             with open(config.geom_filename, 'r', encoding='utf-8') as geom_file:
                 lines = geom_file.readlines()
 
-            str_val = str(br_n_val).split('.')[1]
-            new_line = f'       0   .{str_val}\n'
-            n_line_list = []
-            for num, line in enumerate(lines, 0):
+            new_line = f"{'0':>8}{self._format_n(br_n_val):>8}\n"
+            for num, line in enumerate(lines):
                 if 'Conn BR: BR Mann=' in line or 'Conn BR: XS Mann=' in line:
-                    n_num = int(num + 1)
-                    n_line_list.append(n_num)
-            for i in n_line_list:
-                lines[i] = new_line
+                    n_pairs = self._mann_count(line)
+                    if n_pairs is not None and n_pairs > 1:
+                        raise NotImplementedError(
+                            f"{config.geom_filename}, line {num + 1}: this structure has {n_pairs} "
+                            f"station/n values ({line.strip()}). Only a single n per structure is "
+                            "supported; writing one value would not match the count in this line.")
+                    lines[num + 1] = new_line
 
             with open(config.geom_filename, 'w', encoding='utf-8') as geom_file:
                 geom_file.writelines(lines)
 
             # print(f"bridge channel n val set to: {structure_array[0]}")
 
+    @staticmethod
+    def _format_n(n_val):
+        """Manning's n as RAS writes it in the geometry text file: no leading zero,
+        fixed decimals (never scientific notation), e.g. 0.035 -> '.035'."""
+        if not 0 < n_val < 1:
+            raise ValueError(f"Structure Manning's n must be between 0 and 1, got {n_val}")
+        txt = f"{n_val:.6f}".rstrip('0').lstrip('0')
+        if txt == '.':
+            raise ValueError(f"Structure Manning's n is too small to write: {n_val}")
+        return txt
+
+    @staticmethod
+    def _mann_count(line):
+        """Number of station/n entries on a 'Conn BR: ... Mann=' line, or None if it can't be read."""
+        try:
+            return int(line.split('=', 1)[1].split(',')[0])
+        except (IndexError, ValueError):
+            return None
+
     def assign_param_vals(self, n, params_list):
         """Gets new manning's n values formatted to be passed into Landcover file"""
         if len(n) != len(params_list):
             if config.independent_structures is True:
-                params_list.append(b'Structures')
+                params_list.append(config.STRUCTURE_PARAM.encode())
                 new_param_vals = dict(zip(params_list, n))
             elif len(n) == 1:
                 nvals = np.full(len(params_list), n).tolist()

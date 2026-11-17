@@ -22,7 +22,8 @@ def check_model_names(hecmodel):
     if any([config.cal_observed, config.cal_indirect]):
         wanted |= set(config.Man_n_params)
     if config.gen_ratecurv is True and config.adjust_n_rating:
-        wanted |= set(config.n_regions)
+        # the structure n is written to the geometry, not the land-cover HDF
+        wanted |= set(config.n_regions) - {config.STRUCTURE_PARAM}
     if not wanted:
         return
     man_tab = hecmodel.get_Mannings_calibration_regions(config.lchdf_filename)
@@ -148,11 +149,11 @@ def collect_param_row(hecmodel, new_n):
         if new_n is None:
             raise ValueError("config.structures needs a Manning's n calibration mode "
                              "(cal_observed or cal_indirect)")
-        param_names.append('Structures')
+        param_names.append(config.STRUCTURE_PARAM)
         if config.independent_structures is True:
-            param_vals = np.append(param_vals, new_n[b'Structures'])
+            param_vals = np.append(param_vals, new_n[config.STRUCTURE_PARAM.encode()])
         else:
-            param_vals = np.append(param_vals, new_n[b'Channel'])
+            param_vals = np.append(param_vals, new_n[config.channel_region.encode()])
 
     return dict(zip(param_names, param_vals.tolist()))
 
@@ -271,7 +272,7 @@ def optimize_model(initial_simplex=None, obs_df=None, batch_row=None):
             initial_values = list(config.friction_slope)
         elif config.independent_structures is True:
             initial_values = list(config.Man_n_vals)
-            initial_values.append(config.Man_n_vals[0])
+            initial_values.append(config.structure_start_n())
         else:
             initial_values = list(config.Man_n_vals)
     elif config.cal_indirect is True:
@@ -280,7 +281,7 @@ def optimize_model(initial_simplex=None, obs_df=None, batch_row=None):
             initial_values = list(config.friction_slope)
         initial_values.extend(config.Man_n_vals)
         if config.independent_structures is True:
-            initial_values.append(config.Man_n_vals[0])
+            initial_values.append(config.structure_start_n())
         initial_values.append(config.Q_params_vals[0])
     elif config.cal_EG_slope is True:
         initial_values = list(config.friction_slope)

@@ -84,124 +84,133 @@ class FlowFileParser:
             f.truncate()
 
     def format_hydrograph_input(self, new_q_val):
-        """function that updates discharge in flow file"""
-        if (isinstance(new_q_val, list)):
-            q_val = round(new_q_val[0], 3)
-        else:
-            q_val = round(new_q_val, 3)
+        """Writes a new inflow hydrograph (m^3/s) to the upstream boundary condition
+        (config.us_bc) of the flow file.
+
+        Constant discharge, or a ramp from 0 that holds the peak for the last hour
+        (hydrograph_ramp). With change_sim_time the number of values becomes
+        sim_time_hr * 4 (15-minute interval); otherwise the existing count is kept.
+        """
+        q_val = round(new_q_val[0] if isinstance(new_q_val, list) else new_q_val, 3)
         print(f"Q= {q_val}")
-        with open(config.flow_filename, 'r', encoding='utf-8') as flow_plan:
-            lines = flow_plan.readlines()
-            for num, line in enumerate(lines, 0):
-                if "Flow Hydrograph" in line:
-                    num = int(num)
-                    break
+        lines = self._read_lines()
 
-            if config.change_sim_time is True:
-                entries = config.sim_time_hr * 4
-            else:
-                entries = int(lines[num].split()[-1])
-            rows = int(math.ceil(entries / 10))
-            new_hydrogrh = []
+        head = self._bc_key_line(lines, config.us_bc, 'Flow Hydrograph=')
+        old_entries = int(lines[head].split('=', 1)[1].split()[0])
+        old_rows = int(math.ceil(old_entries / 10))
+
+        if config.change_sim_time is True:
+            interval_line = self._bc_key_line(lines, config.us_bc, 'Interval=')
+            interval = lines[interval_line].split('=', 1)[1].strip()
+            if interval != '15MIN':
+                raise ValueError(f"change_sim_time assumes a 15MIN hydrograph interval, but boundary "
+                                 f"'{config.us_bc}' uses {interval}.")
+            entries = config.sim_time_hr * 4 + 1  # e.g. 3 hr -> 13 values, 0:00 to 3:00
+        else:
+            entries = old_entries
+
+        if config.hydrograph_ramp is True:
+            if entries < 5:
+                raise ValueError(f"hydrograph_ramp needs at least 5 values, the hydrograph has {entries}.")
             increment = q_val / (entries - 1)
-
-            if config.hydrograph_ramp is True:
-                for v in range(0, entries):  # retains max q for last hour
-                    if v == 0:
-                        new_hydrogrh.append(0)
-                    elif v == (entries - 4) or v == (entries - 3) or v == (entries - 2) or v == (entries - 1):
-                        new_hydrogrh.append(q_val)
-                    else:
-                        val = round(v * increment, 3)
-                        new_hydrogrh.append(val)
-            else:
-                for v in range(0, entries):
+            new_hydrogrh = []
+            for v in range(entries):
+                if v == 0:
+                    new_hydrogrh.append(0)
+                elif v >= entries - 4:  # hold the peak for the last hour
                     new_hydrogrh.append(q_val)
+                else:
+                    new_hydrogrh.append(round(v * increment, 3))
+        else:
+            new_hydrogrh = [q_val] * entries
 
-                # print(new_hydrogrh)
-                hydrogrph_list = [[] for i in range(rows)]
-                list_num = 0
-                counter = 0
-                for v in new_hydrogrh:
-                    if counter < 10:
-                        hydrogrph_list[list_num].append(str(v))
-                        counter += 1
-                    else:
-                        counter = 1
-                        list_num += 1
-                        hydrogrph_list[list_num].append(str(v))
-                # print(hydrogrph_list)
+        # 10 values per row, each right-aligned in an 8-character field
+        new_rows = []
+        for r in range(0, entries, 10):
+            row = ''
+            for v in new_hydrogrh[r:r + 10]:
+                txt = str(v)
+                if len(txt) > 8:
+                    raise ValueError(f"Discharge {txt} does not fit the 8-character hydrograph field.")
+                row += f"{txt:>8}"
+            new_rows.append(row + '\n')
 
-                format_list = []
-                for lis in hydrogrph_list:
-                    format_row_list = []
-                    for string in lis:
-                        leng = len(string)
-                        for i in range(8 - leng):
-                            format_row_list.append(' ')
-                        format_row_list.append(string)
-                    format_list.append(''.join(format_row_list))
-                # print(format_list)
+        # replace the count and the old data rows (the number of rows may change)
+        lines[head] = f"Flow Hydrograph= {entries} \n"
+        lines[head + 1:head + 1 + old_rows] = new_rows
 
-                line_cntr = 0
-                for i in range(num + 1, (num + 1 + rows)):
-                    lines[i] = format_list[line_cntr]
-                    lines[i] = lines[i] + '\n'
-                    line_cntr += 1
+        self._write_lines(lines)
+        print("Hydrograph successfully changed")
 
+    # ------------------------------------------------- boundary friction slopes
+    @staticmethod
+    def _bc_key_line(lines, bc_name, key):
+        """Index of the first line starting with `key` inside the block of boundary
+        condition `bc_name` (from its 'Boundary Location=' line to the next one).
+
+        The BC name is field 8 of the 'Boundary Location=' line and the 2D flow area
+        is field 6. If the same BC name is used on more than one flow area, the one
+        matching config.perimeter is used. Raises ValueError if the BC or key is not found.
+        """
+        starts = [i for i, ln in enumerate(lines) if ln.startswith('Boundary Location=')]
+        matches = []
+        for i in starts:
+            fields = [f.strip() for f in lines[i].split('=', 1)[1].split(',')]
+            if len(fields) > 7 and fields[7] == bc_name:
+                matches.append((i, fields[5]))
+        if len(matches) > 1:
+            matches = [m for m in matches if m[1] == config.perimeter]
+        if len(matches) != 1:
+            raise ValueError(f"Boundary condition '{bc_name}' (flow area '{config.perimeter}') found "
+                             f"{len(matches)} times in {config.flow_filename}; expected once. "
+                             "Check us_bc, ds_bc and perimeter in [labels].")
+        first = matches[0][0]
+        nxt = next((i for i in starts if i > first), len(lines))
+        for i in range(first + 1, nxt):
+            if lines[i].startswith(key):
+                return i
+        raise ValueError(f"'{key}' not found under boundary condition '{bc_name}' in {config.flow_filename}.")
+
+    @staticmethod
+    def _read_lines():
+        with open(config.flow_filename, 'r', encoding='utf-8') as flow_plan:
+            return flow_plan.readlines()
+
+    @staticmethod
+    def _write_lines(lines):
         with open(config.flow_filename, 'w', encoding='utf-8') as flow_plan:
             flow_plan.writelines(lines)
-        print("Hydrograph successfully changed")
 
     def read_us_EGslope(self):
         """returns energy gradient at upstream boundary condition"""
-        with open(config.flow_filename, 'r', encoding='utf-8') as flow_plan:
-            lines = flow_plan.readlines()
-            for num, line in enumerate(lines, 0):
-                if 'Flow Hydrograph Slope' in line:
-                    num = int(num)
-                    slope = f"0.{lines[num].split('.')[-1]}"
-                    return slope
+        lines = self._read_lines()
+        num = self._bc_key_line(lines, config.us_bc, 'Flow Hydrograph Slope=')
+        return float(lines[num].split('=', 1)[1].strip())
 
     def update_us_EGslope(self, us_slope):
         """updates energy gradient at upstream boundary condition"""
-        slope_val = round(us_slope, 5)
-        with open(config.flow_filename, 'r', encoding='utf-8') as flow_plan:
-            lines = flow_plan.readlines()
-            for num, line in enumerate(lines, 0):
-                if 'Flow Hydrograph Slope' in line:
-                    num = int(num)
-                    break
-            lines[num] = f'Flow Hydrograph Slope= {slope_val} \n'
-
-        with open(config.flow_filename, 'w', encoding='utf-8') as flow_plan:
-            flow_plan.writelines(lines)
+        slope_val = f"{round(us_slope, 5):.5f}"  # fixed format, never scientific notation
+        lines = self._read_lines()
+        num = self._bc_key_line(lines, config.us_bc, 'Flow Hydrograph Slope=')
+        lines[num] = f'Flow Hydrograph Slope= {slope_val} \n'
+        self._write_lines(lines)
         print(f"US Friction Slope changed to {slope_val}")
 
     def read_ds_EGslope(self):
-        """updates energy gradient at downstream boundary condition"""
-        with open(config.flow_filename, 'r', encoding='utf-8') as flow_plan:
-            lines = flow_plan.readlines()
-            for num, line in enumerate(lines, 0):
-                if 'Friction Slope=' in line:
-                    num = int(num)
-                    slope = f"0.{lines[num].split('.')[-1]}"
-                    slope = slope.split(',')[0]
-                    return slope
+        """returns energy gradient at downstream boundary condition"""
+        lines = self._read_lines()
+        num = self._bc_key_line(lines, config.ds_bc, 'Friction Slope=')
+        return float(lines[num].split('=', 1)[1].split(',')[0].strip())
 
     def update_ds_EGslope(self, ds_slope):
         """updates energy gradient at downstream boundary condition"""
-        slope_val = round(ds_slope, 5)
-        with open(config.flow_filename, 'r', encoding='utf-8') as flow_plan:
-            lines = flow_plan.readlines()
-            for num, line in enumerate(lines, 0):
-                if 'Friction Slope=' in line:
-                    num = int(num)
-                    break
-            lines[num] = f'Friction Slope={slope_val},0 \n'
-
-        with open(config.flow_filename, 'w', encoding='utf-8') as flow_plan:
-            flow_plan.writelines(lines)
+        slope_val = f"{round(ds_slope, 5):.5f}"  # fixed format, never scientific notation
+        lines = self._read_lines()
+        num = self._bc_key_line(lines, config.ds_bc, 'Friction Slope=')
+        rest = lines[num].rstrip('\n').split('=', 1)[1].split(',', 1)
+        tail = rest[1] if len(rest) > 1 else '0'  # keep whatever follows the slope (",0")
+        lines[num] = f'Friction Slope={slope_val},{tail}\n'
+        self._write_lines(lines)
         print(f"DS Friction Slope changed to {slope_val}")
 
 
@@ -233,6 +242,14 @@ class PlanFileParser:
                     out_dict[stdata[0]] = stdata[1]
         return out_dict
 
+    @staticmethod
+    def _key_line(lines, key):
+        """Index of the one line in the plan file that starts with `key`."""
+        found = [i for i, ln in enumerate(lines) if ln.startswith(key)]
+        if len(found) != 1:
+            raise ValueError(f"'{key}' found {len(found)} times in {config.plan_filename}; expected once.")
+        return found[0]
+
     def update_datetime(self):
         """Updates simulation date and time in plan file"""
         sim_date = f"Simulation Date={self.start_date},{self.start_time},{self.end_date},{self.end_time}\n"
@@ -240,8 +257,8 @@ class PlanFileParser:
 
         with open(config.plan_filename, 'r', encoding='utf-8') as plan_file:
             lines = plan_file.readlines()
-            lines[3] = sim_date
-            lines[32] = comp_int
+        lines[self._key_line(lines, 'Simulation Date=')] = sim_date
+        lines[self._key_line(lines, 'Computation Interval=')] = comp_int
 
         with open(config.plan_filename, 'w', encoding='utf-8') as plan_file:
             plan_file.writelines(lines)

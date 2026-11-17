@@ -3,4 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="ras_dev" />
   </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="~\.conda\envs\q2dpy" project-jdk-type="Python SDK" />
 </project>

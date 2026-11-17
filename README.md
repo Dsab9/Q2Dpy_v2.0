@@ -52,7 +52,7 @@ The geospatial packages (GDAL, rasterio, geopandas) are painful to install with 
 ### Option A: conda (recommended)
 
 ```bat
-conda create -n q2dpy python=3.12
+conda create -n q2dpy python=3.13
 conda activate q2dpy
 conda install -c conda-forge numpy pandas "scipy>=1.11" h5py shapely geopandas rasterio gdal matplotlib requests
 pip install pywin32 sambo
@@ -65,7 +65,7 @@ name: q2dpy
 channels:
   - conda-forge
 dependencies:
-  - python=3.12
+  - python=3.13
   - numpy
   - pandas
   - scipy>=1.11
@@ -235,7 +235,7 @@ Optional keys have defaults in `reporting/data.py` or are checked in `config.val
 | `max_runs` | Maximum optimizer iterations |
 | `early_stop` | `true` ends the optimization once the objective values flatten out (optional, default `false`) |
 | `early_stop_tol` | Standard deviation of the last 2(n+1) objective values below which the run stops. Same units as the objective (m for RMSE). Required when `early_stop = true`; 1e-4 is a good starting point |
-| `structures`, `independent_structures` | Assign the channel n to bridges / culverts; `independent_structures` calibrates a separate structure n (requires `structures`) |
+| `structures`, `channel_region`, `independent_structures` | Assign the channel n to bridges / culverts; `independent_structures` calibrates a separate structure n (requires `structures`). `channel_region` is the landcover region that `structures` mirrors when `independent_structures` is false; optional, default `"Channel"`|
 | `set_friction_slope`, `upstream_friction_slope`, `downstream_friction_slope` | Override boundary friction slopes before the first run |
 | `FS_params` | `["us_fs", "ds_fs"]`; either or both when `cal_EG_slope` is on. `us_fs` must come first |
 | `Man_n_params`, `Man_n_vals` | Land-cover region names to calibrate and their starting n values |
