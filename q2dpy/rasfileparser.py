@@ -208,8 +208,8 @@ class FlowFileParser:
         lines = self._read_lines()
         num = self._bc_key_line(lines, config.ds_bc, 'Friction Slope=')
         rest = lines[num].rstrip('\n').split('=', 1)[1].split(',', 1)
-        tail = rest[1] if len(rest) > 1 else '0'  # keep whatever follows the slope (",0")
-        lines[num] = f'Friction Slope={slope_val},{tail}\n'
+        tail = f",{rest[1]}" if len(rest) > 1 else ''  # keep ",0" (RAS 6.x); RAS 7 has none
+        lines[num] = f'Friction Slope={slope_val}{tail}\n'
         self._write_lines(lines)
         print(f"DS Friction Slope changed to {slope_val}")
 
